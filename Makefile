@@ -12,7 +12,38 @@ endif
 # Use the directory where this Makefile is located
 KBUILD_TOP := $(PWD)
 
-include $(KBUILD_TOP)/$(KMODULE_NAME).cfg
+#include $(KBUILD_TOP)/$(KMODULE_NAME).cfg
+ccflags-y += -DCONFIG_SSV_SUPPORT_ANDROID
+#ccflags-y += -DCONFIG_SSV_SUPPORT_AES_ASM
+ccflags-y += -DCONFIG_FW_ALIGNMENT_CHECK
+ccflags-y += -DCONFIG_PLATFORM_SDIO_OUTPUT_TIMING=3
+ccflags-y += -DCONFIG_PLATFORM_SDIO_BLOCK_SIZE=128
+ccflags-y += -DMULTI_THREAD_ENCRYPT
+ccflags-y += -DKTHREAD_BIND
+#ccflags-y += -DROCKCHIP_WIFI_AUTO_SUPPORT
+ccflags-y += -DCONFIG_SSV_RSSI
+ccflags-y += -DCONFIG_SSV_VENDOR_EXT_SUPPORT
+
+#
+##ccflags-y += -DCONFIG_SSV_SUPPORT_ANDROID
+#ccflags-y += -DCONFIG_SSV_BUILD_AS_ONE_KO
+##ccflags-y += -DCONFIG_SSV_SUPPORT_AES_ASM
+#ccflags-y += -DCONFIG_FW_ALIGNMENT_CHECK
+#ccflags-y += -DCONFIG_PLATFORM_SDIO_OUTPUT_TIMING=3
+#ccflags-y += -DCONFIG_PLATFORM_SDIO_BLOCK_SIZE=128
+##ccflags-y += -DMULTI_THREAD_ENCRYPT
+##ccflags-y += -DKTHREAD_BIND
+##ccflags-y += -DROCKCHIP_WIFI_AUTO_SUPPORT
+#ccflags-y += -DCONFIG_SSV_RSSI
+
+############################################################
+# Compiler path
+############################################################
+SSV_CROSS = $(ANDROID_BUILD_TOP)/prebuilts/gcc/linux-x86/arm/arm-eabi-4.6/bin/arm-eabi-
+SSV_KERNEL_PATH = $(ANDROID_BUILD_TOP)/kernel
+SSV_ARCH = arm
+KMODDESTDIR = $(MODDESTDIR)
+
 include $(KBUILD_TOP)/platform-config.mak
 
 # Generate version strings
