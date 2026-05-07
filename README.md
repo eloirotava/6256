@@ -54,11 +54,8 @@ sudo dnf install kernel-devel kernel-headers gcc make
 ## 🔨 Compilation
 
 ```bash
-git clone https://github.com/cdhigh/armbian_sv6256p.git
-cd armbian_sv6256p
-chmod +x ./parser-conf.sh
-make ARCH=arm64 KSRC=/lib/modules/$(uname -r)/build
-ls -lh ssv6x5x.ko
+git
+make 
 ```
 
 ## 📥 Installation
@@ -66,6 +63,7 @@ ls -lh ssv6x5x.ko
 ```bash
 sudo cp ./ssv6x5x-wifi.cfg /lib/firmware/
 sudo cp ./ssv6x5x-sw.bin /lib/firmware/
+sudo cp ./ssv6151-sw.bin /lib/firmware/
 sudo cp ./ssv6x5x.ko /lib/modules/$(uname -r)/kernel/drivers/net/wireless/
 sudo depmod -a
 sudo modprobe ssv6x5x
