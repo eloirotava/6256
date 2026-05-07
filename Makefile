@@ -150,6 +150,7 @@ clean:
 	rm -fr Module.symvers
 	rm -fr Module.markers
 	rm -fr modules.order
+	rm -fr .module-common.o
 #	rm -fr image/$(KMODULE_NAME)-wifi.cfg
 	cd ssvdevice/; 		rm -fr *.mod.c *.mod *.o .*.cmd *.ko
 	cd hci/; 			rm -fr *.mod.c *.mod *.o .*.cmd *.ko
