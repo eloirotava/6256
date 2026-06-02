@@ -29,8 +29,6 @@ static inline void print_null(const char *fmt, ...)
 #define PRINT_ERR printk
 #define PRINT_INFO printk
 void ssv_attach_ssv6006_common(struct ssv_hal_ops *hal_ops);
-void ssv_attach_ssv6051_phy(struct ssv_hal_ops *hal_ops);
-void ssv_attach_ssv6051_cabrioA_BBRF(struct ssv_hal_ops *hal_ops);
 void ssv_attach_ssv6006_phy(struct ssv_hal_ops *hal_ops);
 void ssv_attach_ssv6006c_phy(struct ssv_hal_ops *hal_ops);
 void ssv_attach_ssv6006c_mac(struct ssv_hal_ops *hal_ops);

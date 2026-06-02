@@ -17,7 +17,7 @@
 #include <ssv_mod_conf.h>
 #endif
 #include <linux/version.h>
-#if ((defined SSV_SUPPORT_HAL) && (defined SSV_SUPPORT_SSV6006))
+#if ((defined SSV_SUPPORT_HAL) && (defined SSV_SUPPORT_SSV6X5X))
 #include <linux/etherdevice.h>
 #include <linux/string.h>
 #include <linux/random.h>
@@ -2907,7 +2907,7 @@ void ssv_attach_ssv6006(struct ssv_softc *sc, struct ssv_hal_ops *hal_ops)
         ssv_attach_ssv6006c_mac(hal_ops);
         dev_dbg(sc->dev, "Load SSV6006C/D HAL MAC function \n");
     }
-#ifdef SSV_SUPPORT_SSV6006AB
+#ifdef SSV_SUPPORT_SSV6X5XAB
     else {
         ssv_attach_ssv6006_mac(hal_ops);
         dev_dbg(sc->dev, "Load SSV6006 HAL MAC function \n");
@@ -2923,14 +2923,14 @@ void ssv_attach_ssv6006(struct ssv_softc *sc, struct ssv_hal_ops *hal_ops)
             || strstr(priv->chip_id, SSV6006D)) {
             dev_dbg(sc->dev, "Load SSV6006C/D HAL BB-RF function \n");
             ssv_attach_ssv6006_turismoC_BBRF(hal_ops);
-#ifdef SSV_SUPPORT_SSV6006AB
+#ifdef SSV_SUPPORT_SSV6X5XAB
         } else {
             dev_dbg(sc->dev, "Load SSV6006 HAL shuttle BB-RF function \n");
             ssv_attach_ssv6006_turismoB_BBRF(hal_ops);
 #endif
         }
     }
-#ifdef SSV_SUPPORT_SSV6006AB
+#ifdef SSV_SUPPORT_SSV6X5XAB
     else {
         if (strstr(&fpga_tag[0], FPGA_PHY_5)) {
             dev_dbg(sc->dev, "Load SSV6006 HAL common PHY function \n");

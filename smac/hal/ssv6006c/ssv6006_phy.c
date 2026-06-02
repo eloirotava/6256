@@ -17,7 +17,7 @@
 #include <ssv_mod_conf.h>
 #endif
 #include <linux/version.h>
-#if ((defined SSV_SUPPORT_HAL) && (defined SSV_SUPPORT_SSV6006))
+#if ((defined SSV_SUPPORT_HAL) && (defined SSV_SUPPORT_SSV6X5X))
 #include <linux/etherdevice.h>
 #include <ssv6200.h>
 #include "ssv6006_mac.h"

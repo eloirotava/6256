@@ -1929,7 +1929,7 @@ err:
 static int ssv6xxx_rate_control_register(void)
 {
     int ret = 0;
-#if (!defined(SSV_SUPPORT_HAL)||defined(SSV_SUPPORT_SSV6051))
+#if !defined(SSV_SUPPORT_HAL)
     ret = ssv6xxx_pid_rate_control_register();
     if (ret)
         return ret;
@@ -1939,14 +1939,14 @@ static int ssv6xxx_rate_control_register(void)
         goto err_ssv_minstrel;
     return 0;
 err_ssv_minstrel:
-#if (!defined(SSV_SUPPORT_HAL)||defined(SSV_SUPPORT_SSV6051))
+#if !defined(SSV_SUPPORT_HAL)
     ssv6xxx_pid_rate_control_unregister();
 #endif
     return ret;
 }
 static void ssv6xxx_rate_control_unregister(void)
 {
-#if (!defined(SSV_SUPPORT_HAL)||defined(SSV_SUPPORT_SSV6051))
+#if !defined(SSV_SUPPORT_HAL)
     ssv6xxx_pid_rate_control_unregister();
 #endif
     ssv6xxx_minstrel_rate_control_unregister();
@@ -2095,7 +2095,7 @@ static const struct platform_device_id ssv6xxx_id_table[] = {
         .name = RSV6200A,
         .driver_data = 0,
     },
-#ifdef SSV_SUPPORT_SSV6006
+#ifdef SSV_SUPPORT_SSV6X5X
     {
         .name = SSV6006A,
         .driver_data = 0,

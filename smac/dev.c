@@ -2592,7 +2592,7 @@ out:
         ssv6xxx_update_txinfo(sc, skb);
     }
 #endif
-#if (!defined(SSV_SUPPORT_HAL) || defined(SSV_SUPPORT_SSV6051))
+#if !defined(SSV_SUPPORT_HAL)
     int ssv6xxx_get_real_index(struct ssv_softc *sc, struct sk_buff *skb) {
         struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
         struct ieee80211_tx_rate *tx_drate;

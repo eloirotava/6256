@@ -77,7 +77,7 @@ static int initWlan(void)
     }
 #ifdef ROCKCHIP_WIFI_AUTO_SUPPORT
     if (!ret) {
-        strcpy(wifi_chip_type_string, "ssv6051");
+        strcpy(wifi_chip_type_string, "ssv6x5x");
         printk(KERN_INFO "wifi_chip_type_string : %s\n",wifi_chip_type_string);
     }
 #endif

@@ -85,7 +85,6 @@ KERN_SRCS += smac/ap.c
 KERN_SRCS += smac/ampdu.c
 KERN_SRCS += smac/efuse.c
 KERN_SRCS += smac/ssv_pm.c
-KERN_SRCS += smac/ssv_skb.c
 
 ifeq ($(findstring -DCONFIG_SSV6XXX_DEBUGFS, $(ccflags-y)), -DCONFIG_SSV6XXX_DEBUGFS)
 KERN_SRCS += smac/ssv6xxx_debugfs.c
@@ -110,29 +109,13 @@ endif
 ifeq ($(findstring -DSSV_SUPPORT_HAL, $(ccflags-y)), -DSSV_SUPPORT_HAL)
 KERN_SRCS += smac/hal/hal.c
 
-ifeq ($(findstring -DSSV_SUPPORT_SSV6051, $(ccflags-y)), -DSSV_SUPPORT_SSV6051)
-KERN_SRCS += smac/ssv_rc.c
-KERN_SRCS += smac/ssv_ht_rc.c
-KERN_SRCS += smac/hal/ssv6051/ssv6051_mac.c
-KERN_SRCS += smac/hal/ssv6051/ssv6051_phy.c
-KERN_SRCS += smac/hal/ssv6051/ssv6051_cabrioA.c
-KERN_SRCS += smac/hal/ssv6051/ssv6051_cabrioE.c
-endif
-
-ifeq ($(findstring -DSSV_SUPPORT_SSV6006, $(ccflags-y)), -DSSV_SUPPORT_SSV6006)
+ifeq ($(findstring -DSSV_SUPPORT_SSV6X5X, $(ccflags-y)), -DSSV_SUPPORT_SSV6X5X)
 
 KERN_SRCS += hwif/usb/usb.c
 KERN_SRCS += smac/hal/ssv6006c/ssv6006_common.c
 KERN_SRCS += smac/hal/ssv6006c/ssv6006C_mac.c
 KERN_SRCS += smac/hal/ssv6006c/ssv6006_phy.c
 KERN_SRCS += smac/hal/ssv6006c/ssv6006_turismoC.c
-ifeq ($(findstring -DSSV_SUPPORT_SSV6006AB, $(ccflags-y)), -DSSV_SUPPORT_SSV6006AB)
-KERN_SRCS += smac/hal/ssv6006/ssv6006_mac.c
-KERN_SRCS += smac/hal/ssv6006/ssv6006_cabrioA.c
-KERN_SRCS += smac/hal/ssv6006/ssv6006_geminiA.c
-KERN_SRCS += smac/hal/ssv6006/ssv6006_turismoA.c
-KERN_SRCS += smac/hal/ssv6006/ssv6006_turismoB.c
-endif
 endif
 else
 KERN_SRCS += smac/ssv_rc.c
@@ -157,9 +140,9 @@ obj-$(CONFIG_SSV6X5X) += $(KMODULE_NAME).o
 
 #export CONFIG_SSV6X5X=m
 
-.PHONY: all ver modules clean
+.PHONY: all ver modules strip install install-firmware uninstall clean
 
-all: modules strip
+all: modules
 	
 modules:
 	$(MAKE) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) -C $(KSRC) M=$(shell pwd) modules
@@ -170,6 +153,10 @@ strip:
 install:
 	install -p -m 644 $(KMODULE_NAME).ko  $(MODDESTDIR)
 	/sbin/depmod -a ${KVER}
+
+install-firmware:
+	install -D -m 644 $(KMODULE_NAME)-wifi.cfg /lib/firmware/$(KMODULE_NAME)-wifi.cfg
+	install -D -m 644 $(KMODULE_NAME)-sw.bin /lib/firmware/$(KMODULE_NAME)-sw.bin
 
 uninstall:
 	rm -f $(MODDESTDIR)/$(KMODULE_NAME).ko

@@ -280,7 +280,6 @@ int tu_ssv6xxx_init_hal(struct ssv_softc *sc)
     struct ssv_hw *sh;
     int ret = 0;
     struct ssv_hal_ops *hal_ops = NULL;
-    extern void ssv_attach_ssv6051(struct ssv_softc *sc, struct ssv_hal_ops *hal_ops);
     extern void ssv_attach_ssv6006(struct ssv_softc *sc, struct ssv_hal_ops *hal_ops);
     bool chip_supportted = false;
     struct ssv6xxx_platform_data *priv = sc->dev->platform_data;
@@ -290,19 +289,11 @@ int tu_ssv6xxx_init_hal(struct ssv_softc *sc)
         return -ENOMEM;
     }
     ssv6xxx_attach_common_hal(hal_ops);
-#ifdef SSV_SUPPORT_SSV6051
-    if ( strstr(priv->chip_id, SSV6051_CHIP)
-         || strstr(priv->chip_id, SSV6051_CHIP_ECO3)) {
-        printk(KERN_INFO"Attach SSV6051 family HAL function \n");
-        ssv_attach_ssv6051(sc, hal_ops);
-        chip_supportted = true;
-    }
-#endif
-#ifdef SSV_SUPPORT_SSV6006
+#ifdef SSV_SUPPORT_SSV6X5X
     if ( strstr(priv->chip_id, SSV6006)
          || strstr(priv->chip_id, SSV6006C)
          || strstr(priv->chip_id, SSV6006D)) {
-        printk(KERN_INFO"Attach SSV6006 family HAL function  \n");
+        printk(KERN_INFO"Attach SSV6X5X/SSV6256 HAL function  \n");
         ssv_attach_ssv6006(sc, hal_ops);
         chip_supportted = true;
     }

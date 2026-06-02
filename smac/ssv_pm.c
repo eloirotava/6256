@@ -150,7 +150,7 @@ struct notifier_block ssv_wlan_fb_notifier = {
 void ssv_wakelock_init(struct ssv_softc *sc)
 {
 #ifdef CONFIG_HAS_WAKELOCK
-    sc->ssv_wake_lock_ = wakeup_source_register(NULL, "ssv6051");
+    sc->ssv_wake_lock_ = wakeup_source_register(NULL, "ssv6x5x");
 #endif
 #ifndef CONFIG_HAS_EARLYSUSPEND
     fb_register_client(&ssv_wlan_fb_notifier);
