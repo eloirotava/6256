@@ -42,7 +42,7 @@ void ssv6xxx_rc_rx_data_handler(struct ieee80211_hw *hw, struct sk_buff *skb, u3
 void ssv6xxx_rc_update_basic_rate(struct ssv_softc *sc, u32 basic_rates);
 #endif
 void ssv6xxx_legacy_report_handler(struct ssv_softc *sc,struct sk_buff *skb,struct ssv_sta_rc_info *rc_sta);
-#if (!defined(SSV_SUPPORT_HAL)||defined(SSV_SUPPORT_SSV6051))
+#if !defined(SSV_SUPPORT_HAL)
 int ssv6xxx_pid_rate_control_register(void);
 void ssv6xxx_pid_rate_control_unregister(void);
 void ssv6xxx_rc_hw_rate_idx(struct ssv_softc *sc,

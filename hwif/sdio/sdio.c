@@ -242,7 +242,7 @@ static int __must_check __ssv6xxx_sdio_safe_read_reg (struct ssv6xxx_sdio_glue *
 #endif
 
         //8 byte ( 4 bytes address , 4 bytes data )
-#if (defined(SSV_SUPPORT_SSV6006))
+#if (defined(SSV_SUPPORT_SSV6X5X))
         while(sdio_readb(func, REG_SD_READY_FLAG, &ret) != SDIO_READY_FLAG_IDLE) {
             if (ret != 0) {
                 printk("%s: ret=%d", __func__, ret);
@@ -265,7 +265,7 @@ static int __must_check __ssv6xxx_sdio_safe_read_reg (struct ssv6xxx_sdio_glue *
             goto io_err;
         }
         rdy_flag_cnt = 0;
-#if (defined(SSV_SUPPORT_SSV6006))
+#if (defined(SSV_SUPPORT_SSV6X5X))
         while(sdio_readb(func, REG_SD_READY_FLAG, &ret) != SDIO_READY_FLAG_IDLE) {
             if (ret != 0) {
                 printk("%s: ret=%d", __func__, ret);
@@ -420,7 +420,7 @@ static int __must_check __ssv6xxx_sdio_safe_write_reg (struct ssv6xxx_sdio_glue 
 #elif !defined(CONFIG_MMC_DISALLOW_STACK)
     u8 data[8];
 #endif
-#if (defined(SSV_SUPPORT_SSV6006))
+#if (defined(SSV_SUPPORT_SSV6X5X))
     int rdy_flag_cnt = 0;
 #endif
     if (IS_GLUE_INVALID(glue))
@@ -451,7 +451,7 @@ static int __must_check __ssv6xxx_sdio_safe_write_reg (struct ssv6xxx_sdio_glue 
         data[7] = (buf >> ( 24 )) &0xff;
 #endif
 
-#if (defined(SSV_SUPPORT_SSV6006))
+#if (defined(SSV_SUPPORT_SSV6X5X))
         while(sdio_readb(func, REG_SD_READY_FLAG, &ret) != SDIO_READY_FLAG_IDLE) {
             if (ret != 0) {
                 printk("%s: ret=%d", __func__, ret);
@@ -473,7 +473,7 @@ static int __must_check __ssv6xxx_sdio_safe_write_reg (struct ssv6xxx_sdio_glue 
             dev_err(&func->dev, "%s: sdio write to I/O failed (%d)\n", __func__, ret);
             goto io_err;
         }
-#if (defined(SSV_SUPPORT_SSV6006))
+#if (defined(SSV_SUPPORT_SSV6X5X))
         while(sdio_readb(func, REG_SD_READY_FLAG, &ret) != SDIO_READY_FLAG_IDLE) {
             if (ret != 0) {
                 printk("%s: ret=%d", __func__, ret);
@@ -609,7 +609,7 @@ static int __must_check ssv6xxx_sdio_burst_safe_read_reg(struct device *child, u
     u32 data[MAX_BURST_READ_REG_AMOUNT]= {0};
 #endif
     u8 i = 0;
-#if (defined(SSV_SUPPORT_SSV6006))
+#if (defined(SSV_SUPPORT_SSV6X5X))
     int rdy_flag_cnt = 0;
 #endif
     if (IS_GLUE_INVALID(glue)) {
@@ -632,7 +632,7 @@ static int __must_check ssv6xxx_sdio_burst_safe_read_reg(struct device *child, u
 #endif
         }
 
-#if (defined(SSV_SUPPORT_SSV6006))
+#if (defined(SSV_SUPPORT_SSV6X5X))
         while(sdio_readb(func, REG_SD_READY_FLAG, &ret) != SDIO_READY_FLAG_IDLE) {
             if (ret != 0) {
                 printk("%s: ret=%d", __func__, ret);
@@ -656,7 +656,7 @@ static int __must_check ssv6xxx_sdio_burst_safe_read_reg(struct device *child, u
             dev_err(child->parent, "%s: sdio write to I/O failed (%d)\n", __func__, ret);
             goto io_err;
         }
-#if (defined(SSV_SUPPORT_SSV6006))
+#if (defined(SSV_SUPPORT_SSV6X5X))
         while(sdio_readb(func, REG_SD_READY_FLAG, &ret) != SDIO_READY_FLAG_IDLE) {
             if (ret != 0) {
                 printk("%s: ret=%d", __func__, ret);
@@ -770,7 +770,7 @@ static int __must_check ssv6xxx_sdio_burst_safe_write_reg(struct device *child, 
     u8 data[MAX_BURST_WRITE_REG_AMOUNT][8]= {{0},{0}};
 #endif
     u8 i = 0;
-#if (defined(SSV_SUPPORT_SSV6006))
+#if (defined(SSV_SUPPORT_SSV6X5X))
     int rdy_flag_cnt = 0;
 #endif
     if (IS_GLUE_INVALID(glue)) {
@@ -812,7 +812,7 @@ static int __must_check ssv6xxx_sdio_burst_safe_write_reg(struct device *child, 
 #endif
         }
 
-#if (defined(SSV_SUPPORT_SSV6006))
+#if (defined(SSV_SUPPORT_SSV6X5X))
         while(sdio_readb(func, REG_SD_READY_FLAG, &ret) != SDIO_READY_FLAG_IDLE) {
             if (ret != 0) {
                 printk("%s: ret=%d", __func__, ret);
@@ -835,7 +835,7 @@ static int __must_check ssv6xxx_sdio_burst_safe_write_reg(struct device *child, 
             dev_err(child->parent, "%s: sdio write to I/O failed (%d)\n", __func__, ret);
             goto io_err;
         }
-#if (defined(SSV_SUPPORT_SSV6006))
+#if (defined(SSV_SUPPORT_SSV6X5X))
         while(sdio_readb(func, REG_SD_READY_FLAG, &ret) != SDIO_READY_FLAG_IDLE) {
             if (ret != 0) {
                 printk("%s: ret=%d", __func__, ret);

@@ -458,7 +458,7 @@ static int __init tu_ssvdevice_init(void)
         }
         if(!ret) {
             ret = tu_ssv6xxx_sdio_init();
-#if (defined(SSV_SUPPORT_SSV6006))
+#if (defined(SSV_SUPPORT_SSV6X5X))
             ret = ssv6xxx_usb_init();
 #endif
         }
@@ -477,7 +477,7 @@ static void __exit tu_ssvdevice_exit(void)
     tu_ssv6xxx_exit();
     tu_ssv6xxx_hci_exit();
     tu_ssv6xxx_sdio_exit();
-#if (defined(SSV_SUPPORT_SSV6006))
+#if (defined(SSV_SUPPORT_SSV6X5X))
     ssv6xxx_usb_exit();
 #endif
 #endif

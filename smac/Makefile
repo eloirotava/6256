@@ -47,26 +47,11 @@ endif
 
 ifeq ($(findstring -DSSV_SUPPORT_HAL, $(ccflags-y)), -DSSV_SUPPORT_HAL)
 KERN_SRCS += hal/hal.c
-ifeq ($(findstring -DSSV_SUPPORT_SSV6051, $(ccflags-y)), -DSSV_SUPPORT_SSV6051)
-KERN_SRCS += ssv_rc.c
-KERN_SRCS += ssv_ht_rc.c
-KERN_SRCS += hal/ssv6051/ssv6051_mac.c
-KERN_SRCS += hal/ssv6051/ssv6051_phy.c
-KERN_SRCS += hal/ssv6051/ssv6051_cabrioA.c
-KERN_SRCS += hal/ssv6051/ssv6051_cabrioE.c
-endif
-ifeq ($(findstring -DSSV_SUPPORT_SSV6006, $(ccflags-y)), -DSSV_SUPPORT_SSV6006)
+ifeq ($(findstring -DSSV_SUPPORT_SSV6X5X, $(ccflags-y)), -DSSV_SUPPORT_SSV6X5X)
 KERN_SRCS += hal/ssv6006c/ssv6006_common.c
 KERN_SRCS += hal/ssv6006c/ssv6006C_mac.c
 KERN_SRCS += hal/ssv6006c/ssv6006_phy.c
 KERN_SRCS += hal/ssv6006c/ssv6006_turismoC.c
-ifeq ($(findstring -DSSV_SUPPORT_SSV6006AB, $(ccflags-y)), -DSSV_SUPPORT_SSV6006AB)
-KERN_SRCS += hal/ssv6006/ssv6006_mac.c
-KERN_SRCS += hal/ssv6006/ssv6006_cabrioA.c
-KERN_SRCS += hal/ssv6006/ssv6006_geminiA.c
-KERN_SRCS += hal/ssv6006/ssv6006_turismoA.c
-KERN_SRCS += hal/ssv6006/ssv6006_turismoB.c
-endif
 endif
 else
 KERN_SRCS += ssv_rc.c

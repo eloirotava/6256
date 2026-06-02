@@ -35,7 +35,7 @@ ccflags-y += -fno-optimize-sibling-calls
 # if it is enable 
 # DCONFIG_SSV_CABRIO_A/DCONFIG_SSV_CABRIO_A is not valid in driver.
 ccflags-y += -DSSV_SUPPORT_HAL
-ccflags-y += -DSSV_SUPPORT_SSV6006
+ccflags-y += -DSSV_SUPPORT_SSV6X5X
 
 ############################################################
 # If you change the settings, please change the file synchronization
