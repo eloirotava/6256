@@ -20,18 +20,6 @@ int ssv_ac_to_hwq(u16 ac)
 	return ac_to_hwq[ac & 3];
 }
 
-/* TID to access category, as in the WMM tables. */
-int ssv_tid_to_hwq(u8 tid)
-{
-	static const u8 tid_to_ac[8] = {
-		IEEE80211_AC_BE, IEEE80211_AC_BK, IEEE80211_AC_BK,
-		IEEE80211_AC_BE, IEEE80211_AC_VI, IEEE80211_AC_VI,
-		IEEE80211_AC_VO, IEEE80211_AC_VO,
-	};
-
-	return ac_to_hwq[tid_to_ac[tid & 7]];
-}
-
 void ssv_tx_kick(struct ssv_dev *sd)
 {
 	wake_up(&sd->tx_wait);
@@ -270,13 +258,6 @@ void ssv_tx_status(struct ssv_dev *sd, struct sk_buff *rpt)
 			break;
 	}
 
-	/* an aggregate is settled by its Block Ack, unless none came */
-	if (ssv_is_agg_run_no(slot)) {
-		if (!acked)
-			ssv_agg_failed(sd, slot);
-		return;
-	}
-
 	skb = ssv_status_take(sd, slot);
 	if (!skb)
 		return;
@@ -387,8 +368,8 @@ static void ssv_send_one(struct ssv_dev *sd, struct sk_buff *skb)
 	if (aligned > SSV_TX_BUF_SIZE) {
 		ret = -EMSGSIZE;
 	} else {
-		/* bounce: DMA-safe and zero-padded to the block size */
-		memcpy(sd->tx_buf, skb->data, skb->len);
+		/* bounce: DMA-safe, zero-padded, and the frame may be paged */
+		skb_copy_bits(skb, 0, sd->tx_buf, skb->len);
 		memset(sd->tx_buf + skb->len, 0, aligned - skb->len);
 		ret = ssv_write_data(sd, sd->tx_buf, skb->len);
 	}
@@ -413,30 +394,14 @@ static struct sk_buff *ssv_tx_next(struct ssv_dev *sd)
 	return skb;
 }
 
-/* Frames the driver still holds, in either path. */
+/* Frames the driver still holds. */
 bool ssv_tx_queued(struct ssv_dev *sd)
 {
-	int q, w, t;
+	int q;
 
 	for (q = 0; q < SSV_HW_TXQ_NUM; q++)
 		if (!skb_queue_empty(&sd->txq[q]))
 			return true;
-	for (w = 0; w < SSV_NUM_STA; w++) {
-		struct ieee80211_sta *sta;
-		struct ssv_sta *ss;
-
-		rcu_read_lock();
-		sta = rcu_dereference(sd->sta[w]);
-		ss = sta ? (struct ssv_sta *)sta->drv_priv : NULL;
-		for (t = 0; ss && t < SSV_AGG_TIDS; t++) {
-			if (!skb_queue_empty(&ss->agg[t].q) ||
-			    !skb_queue_empty(&ss->agg[t].retry)) {
-				rcu_read_unlock();
-				return true;
-			}
-		}
-		rcu_read_unlock();
-	}
 	return false;
 }
 
@@ -487,12 +452,8 @@ static int ssv_tx_thread(void *data)
 
 	while (!kthread_should_stop()) {
 		struct sk_buff *skb = ssv_tx_next(sd);
-		bool sent;
 
 		ssv_tx_expire(sd);
-		sent = ssv_agg_pump(sd);
-		if (!skb && sent)
-			continue;
 		if (!skb) {
 			wait_event_interruptible_timeout(sd->tx_wait,
 							 ssv_tx_pending(sd) ||
@@ -525,10 +486,6 @@ void ssv_tx(struct ieee80211_hw *hw, struct ieee80211_tx_control *control,
 		hwq = ac_to_hwq[skb_get_queue_mapping(skb) & 3];
 	}
 
-	if (sd->started && sta && ssv_agg_tx(sd, sta, skb)) {
-		wake_up(&sd->tx_wait);
-		return;
-	}
 	if (!sd->started || !ssv_build_desc(sd, skb, sta, hwq)) {
 		ieee80211_free_txskb(hw, skb);
 		return;
@@ -541,8 +498,6 @@ void ssv_tx_flush(struct ssv_dev *sd)
 {
 	struct sk_buff *skb;
 	int i;
-
-	ssv_agg_flush_all(sd);
 
 	for (i = 0; i < SSV_HW_TXQ_NUM; i++)
 		while ((skb = skb_dequeue(&sd->txq[i])))

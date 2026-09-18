@@ -217,10 +217,7 @@ static int ssv_sta_add(struct ssv_dev *sd, struct ieee80211_sta *sta)
 		return -ENOSPC;
 
 	ss->wsid = wsid;
-	ssv_agg_init(ss);
-	mutex_lock(&sd->agg_mutex);
 	rcu_assign_pointer(sd->sta[wsid], sta);
-	mutex_unlock(&sd->agg_mutex);
 	return ssv_wsid_add(sd, wsid, sta->addr);
 }
 
@@ -228,18 +225,12 @@ static void ssv_sta_del(struct ssv_dev *sd, struct ieee80211_sta *sta)
 {
 	struct ssv_sta *ss = (struct ssv_sta *)sta->drv_priv;
 
-	int tid;
-
 	if (ss->wsid < 0 || ss->wsid >= SSV_NUM_STA)
 		return;
 	ssv_wsid_del(sd, ss->wsid);
-	mutex_lock(&sd->agg_mutex);
 	RCU_INIT_POINTER(sd->sta[ss->wsid], NULL);
-	mutex_unlock(&sd->agg_mutex);
 	ss->wsid = -1;
 	synchronize_rcu();
-	for (tid = 0; tid < SSV_AGG_TIDS; tid++)
-		ssv_agg_flush(sd, ss, tid);
 }
 
 static int ssv_sta_state(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
@@ -261,7 +252,8 @@ static int ssv_sta_state(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 /*
  * Receiving aggregates needs nothing from the driver: the MAC answers
  * the Block Ack requests and hands the subframes over one by one, and
- * mac80211 puts them back in order.  Sending them is in ampdu.c.
+ * mac80211 puts them back in order.  Sending them is not done here:
+ * the chip needs more hand holding than it is worth so far.
  */
 static int ssv_ampdu_action(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 			    struct ieee80211_ampdu_params *params)
@@ -271,7 +263,7 @@ static int ssv_ampdu_action(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 	case IEEE80211_AMPDU_RX_STOP:
 		return 0;
 	default:
-		return ssv_agg_action(hw->priv, vif, params);
+		return -EOPNOTSUPP;
 	}
 }
 
@@ -324,8 +316,6 @@ struct ssv_dev *ssv_mac_alloc(struct device *dev)
 	sd->dev = dev;
 	sd->channel = 1;
 	mutex_init(&sd->mutex);
-	mutex_init(&sd->agg_mutex);
-	spin_lock_init(&sd->sta_lock);
 	ssv_ap_init(sd);
 	ssv_rx_init(sd);
 	SET_IEEE80211_DEV(hw, dev);
@@ -374,9 +364,20 @@ int ssv_mac_register(struct ssv_dev *sd)
 		sd->band5.n_bitrates = ARRAY_SIZE(ssv_bitrates) - 4;
 	}
 
+	/* the 5 GHz band has no CCK rates: it starts at 6 Mbit/s */
+	if (sd->dual_band) {
+		sd->band5.band = NL80211_BAND_5GHZ;
+		sd->band5.channels = ssv_channels_5g;
+		sd->band5.n_channels = ARRAY_SIZE(ssv_channels_5g);
+		sd->band5.bitrates = &ssv_bitrates[4];
+		sd->band5.n_bitrates = ARRAY_SIZE(ssv_bitrates) - 4;
+	}
+
 	/* one spatial stream, 20 or 40 MHz */
 	ht->ht_supported = true;
-	ht->cap = IEEE80211_HT_CAP_SGI_20 | IEEE80211_HT_CAP_SM_PS;
+	ht->cap = IEEE80211_HT_CAP_SGI_20 | IEEE80211_HT_CAP_SGI_40 |
+		  IEEE80211_HT_CAP_SUP_WIDTH_20_40 |
+		  IEEE80211_HT_CAP_DSSSCCK40 | IEEE80211_HT_CAP_SM_PS;
 	ht->ampdu_factor = IEEE80211_HT_MAX_AMPDU_32K;
 	ht->ampdu_density = IEEE80211_HT_MPDU_DENSITY_8;
 	ht->mcs.rx_mask[0] = 0xff;

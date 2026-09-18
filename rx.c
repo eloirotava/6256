@@ -92,7 +92,6 @@ static void ssv_rx_frame(struct ssv_dev *sd, struct sk_buff *skb)
 	struct ssv_rx_desc *rxd = (struct ssv_rx_desc *)skb->data;
 	struct ssv_rxphy_info *phy = (struct ssv_rxphy_info *)(rxd + 1);
 	struct ieee80211_rx_status *rxs = IEEE80211_SKB_RXCB(skb);
-	u8 run_no = le32_get_bits(rxd->w3, RXD3_PKT_RUN_NO);
 	u32 w0 = le32_to_cpu(phy->w0);
 	u32 len = le32_get_bits(rxd->w0, RXD0_LEN);
 
@@ -114,14 +113,6 @@ static void ssv_rx_frame(struct ssv_dev *sd, struct sk_buff *skb)
 	skb_pull(skb, SSV_RX_DESC_LEN);
 	skb_trim(skb, skb->len - SSV_RX_PINFO_PAD);
 
-	/* a Block Ack answers an aggregate of ours; mac80211 does not
-	 * need to see it
-	 */
-	if (ieee80211_is_back(((struct ieee80211_hdr *)skb->data)->frame_control)) {
-		ssv_agg_ba(sd, skb, run_no);
-		dev_kfree_skb(skb);
-		return;
-	}
 	ieee80211_rx_irqsafe(sd->hw, skb);
 }
 

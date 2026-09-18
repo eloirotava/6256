@@ -500,8 +500,14 @@ int ssv_hw_start(struct ssv_dev *sd)
 /* Read what the driver needs before registering with mac80211. */
 void ssv_hw_probe(struct ssv_dev *sd)
 {
+	u32 id;
+
+	/* the parts that also cover 5 GHz say so in their identity */
+	sd->dual_band = !ssv_reg_read(sd, ADR_CHIP_ID_2, &id) &&
+			id == DUAL_BAND_ID;
 	ssv_read_efuse(sd);
-	dev_info(sd->dev, "chip %s, MAC %pM\n", sd->chip_id, sd->mac);
+	dev_info(sd->dev, "chip %s (%s band), MAC %pM\n", sd->chip_id,
+		 sd->dual_band ? "dual" : "single", sd->mac);
 }
 
 int ssv_wsid_add(struct ssv_dev *sd, int wsid, const u8 *addr)

@@ -219,37 +219,8 @@ struct ssv_host_hdr {
 /* How long to wait for a report before giving up on a frame. */
 #define SSV_STATUS_TIMEOUT	(HZ / 2)
 
-/* Aggregation state, one per traffic identifier of a station. */
-#define SSV_AGG_TIDS		8
-#define SSV_AGG_WINDOW		64
-/* Run numbers: 0..31 identify single frames, 64..127 whole aggregates. */
-#define SSV_AGG_IDS		64
-#define SSV_AGG_RUN_NO(id)	((id) | SSV_AGG_IDS)
-#define SSV_AGG_ID(run)		((run) & (SSV_AGG_IDS - 1))
-static inline bool ssv_is_agg_run_no(u8 run)
-{
-	return run >= SSV_AGG_IDS && run < 2 * SSV_AGG_IDS;
-}
-
-enum ssv_agg_state {
-	SSV_AGG_OFF,
-	SSV_AGG_STARTING,
-	SSV_AGG_OPERATIONAL,
-};
-
-struct ssv_agg {
-	struct sk_buff_head q;		/* waiting to be aggregated */
-	struct sk_buff_head retry;	/* unacknowledged, to send again */
-	struct sk_buff_head inflight;	/* handed to the chip */
-	unsigned long retry_start;	/* when to ask for a session again */
-	u16 buf_size;			/* window the peer granted */
-	u8 tries[SSV_AGG_WINDOW];
-	u8 state;
-};
-
 struct ssv_sta {
 	int wsid;
-	struct ssv_agg agg[SSV_AGG_TIDS];
 };
 
 struct ssv_dev {
@@ -277,9 +248,6 @@ struct ssv_dev {
 	bool short_preamble;
 
 	struct ieee80211_sta __rcu *sta[SSV_NUM_STA];
-	spinlock_t sta_lock;	/* protects the aggregation queues */
-	u8 agg_next_id;		/* run number of the next aggregate */
-	struct mutex agg_mutex;	/* serialises aggregate building and sending */
 
 	/* receive: how many interrupts arrived with nothing behind them */
 	struct delayed_work rx_unmask_work;
@@ -347,7 +315,6 @@ void ssv_tx(struct ieee80211_hw *hw, struct ieee80211_tx_control *control,
 void ssv_tx_status(struct ssv_dev *sd, struct sk_buff *skb);
 void ssv_tx_kick(struct ssv_dev *sd);
 bool ssv_tx_queued(struct ssv_dev *sd);
-int ssv_tid_to_hwq(u8 tid);
 int ssv_ac_to_hwq(u16 ac);
 u8 ssv_rate_code(struct ssv_dev *sd, const struct ieee80211_tx_rate *r,
 		 enum nl80211_band band);
@@ -367,18 +334,6 @@ void ssv_ap_init(struct ssv_dev *sd);
 void ssv_ap_update_beacon(struct ssv_dev *sd);
 void ssv_ap_group_queued(struct ssv_dev *sd);
 void ssv_ap_stop(struct ssv_dev *sd);
-
-/* ampdu.c */
-void ssv_agg_init(struct ssv_sta *ss);
-void ssv_agg_flush(struct ssv_dev *sd, struct ssv_sta *ss, u8 tid);
-void ssv_agg_flush_all(struct ssv_dev *sd);
-bool ssv_agg_tx(struct ssv_dev *sd, struct ieee80211_sta *sta,
-		struct sk_buff *skb);
-bool ssv_agg_pump(struct ssv_dev *sd);
-void ssv_agg_ba(struct ssv_dev *sd, struct sk_buff *skb, u8 run_no);
-void ssv_agg_failed(struct ssv_dev *sd, u8 run_no);
-int ssv_agg_action(struct ssv_dev *sd, struct ieee80211_vif *vif,
-		   struct ieee80211_ampdu_params *params);
 
 /* phy.c */
 int ssv_phy_init(struct ssv_dev *sd);

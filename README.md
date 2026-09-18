@@ -35,16 +35,18 @@ O que falta: criptografia por hardware (hoje é feita em software, o que
 o processador aguenta com folga nessas taxas), economia de energia e o
 ajuste fino de potência por canal em 5 GHz.
 
-Agregação nos dois sentidos: na recepção o MAC responde aos Block Ack
-sozinho e entrega os subquadros um a um; no envio o host monta o
-agregado (delimitador por MPDU, FCS preenchido pelo MAC) e o Block Ack
-volta marcado com o número do agregado, dizendo quais subquadros
-chegaram.
+Recebe agregados (A-MPDU): o MAC responde aos Block Ack sozinho e
+entrega os subquadros um a um. Enviar agregados ainda não funciona e
+está fora daqui — o trabalho e o que se descobriu sobre o chip estão na
+branch `ampdu-wip`.
 
-Medido num RK322x ligado a um AP a poucos metros, com MCS7 nos dois
-sentidos: **5 a 9 Mbit/s**, variando com a ocupação do canal. Sem
-agregação no envio, cada quadro custa uma transação SDIO (cerca de
-400 µs), e é isso que limita.
+Medido num RK322x com o canal de 2,4 GHz cheio (noite, mais de trinta
+redes à vista), a −19 dBm do ponto de acesso: **1,4 Mbit/s de subida e
+3,0 Mbit/s de descida**. Números bem maiores aparecem com os parâmetros
+de acesso ao meio que o chip traz de fábrica (AIFS 2 e janela 3–7 em
+todas as filas), mas isso é tomar banda dos vizinhos; o driver programa
+o que o ponto de acesso pede, como manda o padrão. Sem agregação de
+envio, cada quadro custa uma transação SDIO, e é isso que limita.
 
 As calibrações levam cerca de 90 ms e são refeitas a cada carga do
 módulo; o resultado aparece no `dmesg` em nível de depuração.

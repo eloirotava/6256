@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-only
 obj-$(CONFIG_SSV6256) += ssv6256.o
-ssv6256-y := sdio.o hw.o phy.o mac.o tx.o rx.o ampdu.o ap.o
+ssv6256-y := sdio.o hw.o phy.o mac.o tx.o rx.o ap.o
 
 ifeq ($(KERNELRELEASE),)
 # Out-of-tree build: make [KVER=<kernel version>] [KDIR=<kernel build dir>]
