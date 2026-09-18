@@ -307,14 +307,11 @@ void ssv_pbuf_free(struct ssv_dev *sd, u32 addr)
 		      (M_ENG_TRASH_CAN << 7) | (addr >> 16));
 }
 
-/* In access point mode the MAC sends the beacon and holds group frames. */
+/* In access point mode the MAC sends the beacon out of its own buffer. */
 void ssv_set_ap_mode(struct ssv_dev *sd, bool ap)
 {
 	ssv_field_write(sd, ADR_GLBLE_SET, OP_MODE,
 			ap ? OPMODE_AP : OPMODE_STA);
-	ssv_reg_set_bits(sd, ADR_MTX_BCN_EN_MISC,
-			 ap ? TXQ5_DTIM_BEACON_BURST_MNG : 0,
-			 TXQ5_DTIM_BEACON_BURST_MNG);
 }
 
 void ssv_beacon_timing(struct ssv_dev *sd, u16 interval, u8 dtim_period)

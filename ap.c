@@ -16,6 +16,14 @@
 /* keep announcing buffered group frames this many DTIM periods */
 #define DTIM_HOLD_PERIODS	2
 
+/* 1 Mbit/s where CCK exists, 6 Mbit/s otherwise. */
+static u8 beacon_rate(struct ssv_dev *sd)
+{
+	if (sd->channel >= 36)
+		return FIELD_PREP(RATE_PHY_MODE, RATE_PHY_OFDM);
+	return FIELD_PREP(RATE_PHY_MODE, RATE_PHY_CCK);
+}
+
 bool ssv_is_ap(struct ssv_dev *sd)
 {
 	struct ieee80211_vif *vif = sd->vif;
@@ -27,7 +35,6 @@ bool ssv_is_ap(struct ssv_dev *sd)
 void ssv_ap_update_beacon(struct ssv_dev *sd)
 {
 	struct ieee80211_vif *vif = sd->vif;
-	struct ieee80211_tx_info *info;
 	struct ssv_tx_desc *d;
 	struct sk_buff *skb;
 	u16 tim_offset, tim_len;
@@ -55,22 +62,20 @@ void ssv_ap_update_beacon(struct ssv_dev *sd)
 	if (!buf)
 		goto out;
 
-	info = IEEE80211_SKB_CB(skb);
+	/*
+	 * The MAC sends this from its own buffer, so there is no queue and
+	 * no packet engine chain; the length field counts the frame only.
+	 */
 	d = (struct ssv_tx_desc *)buf;
-	d->w0 = cpu_to_le32(FIELD_PREP(TXD0_LEN, len) |
+	d->w0 = cpu_to_le32(FIELD_PREP(TXD0_LEN, skb->len) |
 			    FIELD_PREP(TXD0_C_TYPE, SSV_CTYPE_TXREQ) |
 			    TXD0_F80211);
-	d->fcmd = cpu_to_le32(((SSV_HW_TXQ_DTIM + M_ENG_TX_EDCA0) << 4) |
-			      M_ENG_HWHCI);
 	d->w2 = cpu_to_le32(FIELD_PREP(TXD2_HDR_OFFSET, SSV_TX_DESC_LEN) |
 			    FIELD_PREP(TXD2_HDR_LEN, 24));
-	d->w3 = cpu_to_le32(FIELD_PREP(TXD3_WSID, 0xf) |
-			    FIELD_PREP(TXD3_TXQ_IDX, SSV_HW_TXQ_DTIM));
-	d->w5 = cpu_to_le32(FIELD_PREP(TXD5_RATE_RPT_MODE, RATE_RPT_OFF));
-	/* beacons go out at the lowest basic rate, without an ack */
-	ssv_fill_rate(&d->rate[0],
-		      ssv_rate_code(sd, &info->control.rates[0], info->band),
-		      1, skb->len + 4, false, false, true);
+	d->w3 = cpu_to_le32(FIELD_PREP(TXD3_WSID, 0xf));
+	/* the slowest rate of the band, once, with nobody acknowledging */
+	ssv_fill_rate(&d->rate[0], beacon_rate(sd), 1, skb->len + 4, false,
+		      false, true);
 	memcpy(buf + SSV_TX_DESC_LEN, skb->data, skb->len);
 
 	/* nothing changed and the chip already holds it: leave it alone */
@@ -80,7 +85,8 @@ void ssv_ap_update_beacon(struct ssv_dev *sd)
 		kfree(buf);
 		goto out;
 	}
-	if (ssv_beacon_set(sd, buf, len, SSV_TX_DESC_LEN + tim_offset + 2)) {
+	/* the MAC counts the DTIM offset from the body of the beacon */
+	if (ssv_beacon_set(sd, buf, len, tim_offset + 2 - sizeof(struct ieee80211_hdr_3addr))) {
 		dev_err(sd->dev, "cannot store the beacon\n");
 		kfree(buf);
 		goto out;

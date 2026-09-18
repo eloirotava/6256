@@ -59,10 +59,13 @@ enum ssv_bandwidth {
 	SSV_BW_40_BELOW,
 };
 
-/* Hardware transmit queues: one per access category, management, DTIM. */
-#define SSV_HW_TXQ_NUM		6
+/*
+ * Hardware transmit queues: one per access category plus one for
+ * management frames, which is also where group frames waiting for the
+ * DTIM beacon go.
+ */
+#define SSV_HW_TXQ_NUM		5
 #define SSV_HW_TXQ_MGMT		4
-#define SSV_HW_TXQ_DTIM		5
 
 /* Packet engines, as used by the receive flow and trap registers. */
 #define M_ENG_CPU		0x00

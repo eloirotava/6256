@@ -11,6 +11,7 @@
 #include <linux/mmc/host.h>
 #include <linux/mmc/sdio.h>
 #include <linux/mmc/sdio_ids.h>
+#include <linux/pm.h>
 #include <linux/string.h>
 #include <linux/unaligned.h>
 
@@ -405,6 +406,27 @@ static void ssv_sdio_remove(struct sdio_func *func)
 	ssv_mac_free(sd);
 }
 
+/*
+ * System suspend: mac80211 has already stopped the interface, so the
+ * chip can simply lose power and be set up again on resume.
+ */
+static int ssv_sdio_suspend(struct device *dev)
+{
+	struct sdio_func *func = dev_to_sdio_func(dev);
+	struct ssv_dev *sd = sdio_get_drvdata(func);
+
+	if (sd && sd->started)
+		ssv_irq_disable(sd);
+	return 0;
+}
+
+static int ssv_sdio_resume(struct device *dev)
+{
+	return 0;
+}
+
+static DEFINE_SIMPLE_DEV_PM_OPS(ssv_pm_ops, ssv_sdio_suspend, ssv_sdio_resume);
+
 static const struct sdio_device_id ssv_sdio_ids[] = {
 	{ SDIO_DEVICE(SDIO_VENDOR_ID_SSV, SDIO_DEVICE_ID_SSV_6256) },
 	{ }
@@ -416,6 +438,7 @@ static struct sdio_driver ssv_sdio_driver = {
 	.id_table = ssv_sdio_ids,
 	.probe = ssv_sdio_probe,
 	.remove = ssv_sdio_remove,
+	.drv.pm = pm_sleep_ptr(&ssv_pm_ops),
 };
 module_sdio_driver(ssv_sdio_driver);
 

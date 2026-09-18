@@ -514,9 +514,9 @@ void ssv_tx(struct ieee80211_hw *hw, struct ieee80211_tx_control *control,
 	struct ieee80211_sta *sta = control ? control->sta : NULL;
 	int hwq;
 
-	/* group frames for dozing stations wait for the DTIM beacon */
+	/* group frames for dozing stations are announced in the beacon */
 	if (info->flags & IEEE80211_TX_CTL_SEND_AFTER_DTIM) {
-		hwq = SSV_HW_TXQ_DTIM;
+		hwq = SSV_HW_TXQ_MGMT;
 		ssv_ap_group_queued(sd);
 	} else if (ieee80211_is_mgmt(hdr->frame_control) ||
 		   ieee80211_is_nullfunc(hdr->frame_control)) {

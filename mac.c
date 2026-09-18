@@ -349,7 +349,6 @@ int ssv_mac_register(struct ssv_dev *sd)
 	ieee80211_hw_set(hw, AMPDU_AGGREGATION);
 	ieee80211_hw_set(hw, SUPPORTS_REORDERING_BUFFER);
 	hw->max_rx_aggregation_subframes = 32;
-	ieee80211_hw_set(hw, HOST_BROADCAST_PS_BUFFERING);
 	hw->queues = IEEE80211_NUM_ACS;
 	hw->extra_tx_headroom = SSV_TX_DESC_LEN;
 	hw->max_rates = SSV_TX_MAX_RATES;
