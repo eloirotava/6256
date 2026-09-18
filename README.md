@@ -8,10 +8,20 @@ fabricante (`ssv6x5x`), que está no branch `main` deste repositório.
 
 - transporte SDIO (portas de registrador e de dados);
 - identificação do chip;
+- inicialização da PLL, das tabelas de RF e de banda base;
+- calibração de RF feita pelo host (DC de recepção, filtro RC em HT20 e
+  HT40, vazamento de oscilador local e desequilíbrio IQ de TX e RX);
+- inicialização do MAC (reset, relógio digital, tabela de registradores,
+  contabilidade do buffer de pacotes, filtro de recepção);
+- endereço MAC do e-fuse, do device tree (`local-mac-address`) ou
+  aleatório, nessa ordem;
 - carga do firmware `ssv6x5x-sw.bin` com verificação de checksum.
 
-O que falta: inicialização de MAC, PHY e RF, calibração, caminho de dados
-e registro no mac80211.
+O que falta: caminho de dados (descritores de TX e RX), registro no
+mac80211 e controle de taxa.
+
+As calibrações levam cerca de 90 ms e são refeitas a cada carga do
+módulo; o resultado aparece no `dmesg` em nível de depuração.
 
 ## Diferenças em relação ao SSV6051
 

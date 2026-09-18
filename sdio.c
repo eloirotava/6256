@@ -333,12 +333,10 @@ static int ssv_sdio_probe(struct sdio_func *func, const struct sdio_device_id *i
 	ret = ssv_read_chip_id(sd);
 	if (ret)
 		goto err;
-	dev_info(sd->dev, "chip %s\n", sd->chip_id);
 
-	ret = ssv_load_firmware(sd);
+	ret = ssv_hw_start(sd);
 	if (ret)
 		goto err;
-	dev_info(sd->dev, "firmware running\n");
 	return 0;
 
 err:
