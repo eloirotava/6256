@@ -278,6 +278,10 @@ struct ssv_dev {
 	u8 agg_next_id;		/* run number of the next aggregate */
 	struct mutex agg_mutex;	/* serialises aggregate building and sending */
 
+	/* receive: how many interrupts arrived with nothing behind them */
+	struct delayed_work rx_unmask_work;
+	unsigned int rx_empty;
+
 	/* transmit: one queue per hardware queue, drained by a thread */
 	struct sk_buff_head txq[SSV_HW_TXQ_NUM];
 	wait_queue_head_t tx_wait;
@@ -351,6 +355,7 @@ int ssv_tx_init(struct ssv_dev *sd);
 void ssv_tx_deinit(struct ssv_dev *sd);
 
 /* rx.c */
+void ssv_rx_init(struct ssv_dev *sd);
 void ssv_rx_irq(struct ssv_dev *sd);
 
 /* ap.c */

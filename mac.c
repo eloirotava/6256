@@ -68,6 +68,7 @@ static void ssv_stop(struct ieee80211_hw *hw, bool suspend)
 {
 	struct ssv_dev *sd = hw->priv;
 
+	cancel_delayed_work_sync(&sd->rx_unmask_work);
 	mutex_lock(&sd->mutex);
 	sd->started = false;
 	ssv_irq_disable(sd);
@@ -326,6 +327,7 @@ struct ssv_dev *ssv_mac_alloc(struct device *dev)
 	mutex_init(&sd->agg_mutex);
 	spin_lock_init(&sd->sta_lock);
 	ssv_ap_init(sd);
+	ssv_rx_init(sd);
 	SET_IEEE80211_DEV(hw, dev);
 	return sd;
 }

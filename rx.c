@@ -125,6 +125,31 @@ static void ssv_rx_frame(struct ssv_dev *sd, struct sk_buff *skb)
 	ieee80211_rx_irqsafe(sd->hw, skb);
 }
 
+/*
+ * The chip can claim to have a frame waiting and then hand over
+ * nothing.  Reading the status does not clear that, so the interrupt
+ * line stays low and the host spins on it.  After a few rounds of this
+ * the interrupt is masked for a while: the driver falls behind, but the
+ * machine stays usable, which is not the case with the storm.
+ */
+#define RX_EMPTY_LIMIT		32
+#define RX_EMPTY_BACKOFF	msecs_to_jiffies(100)
+
+static void ssv_rx_unmask_work(struct work_struct *work)
+{
+	struct ssv_dev *sd = container_of(to_delayed_work(work), struct ssv_dev,
+					  rx_unmask_work);
+
+	sd->rx_empty = 0;
+	if (sd->started)
+		ssv_irq_mask(sd, (u8)~SSV_INT_RX);
+}
+
+void ssv_rx_init(struct ssv_dev *sd)
+{
+	INIT_DELAYED_WORK(&sd->rx_unmask_work, ssv_rx_unmask_work);
+}
+
 void ssv_rx_irq(struct ssv_dev *sd)
 {
 	u8 status;
@@ -137,8 +162,17 @@ void ssv_rx_irq(struct ssv_dev *sd)
 		if (ssv_read_status(sd, &status) || !(status & SSV_INT_RX))
 			break;
 		skb = ssv_read_frame(sd);
-		if (!skb)
+		if (!skb) {
+			if (++sd->rx_empty < RX_EMPTY_LIMIT)
+				break;
+			dev_err_ratelimited(sd->dev,
+					    "interrupt with nothing to read, backing off\n");
+			ssv_irq_mask(sd, 0xff);
+			schedule_delayed_work(&sd->rx_unmask_work,
+					      RX_EMPTY_BACKOFF);
 			break;
+		}
+		sd->rx_empty = 0;
 		n++;
 		rxd = (struct ssv_rx_desc *)skb->data;
 		switch (le32_get_bits(rxd->w0, RXD0_C_TYPE)) {
