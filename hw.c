@@ -9,6 +9,8 @@
  */
 #include <linux/delay.h>
 #include <linux/etherdevice.h>
+#include <linux/jhash.h>
+#include <linux/mmc/card.h>
 #include <linux/of_net.h>
 #include <linux/unaligned.h>
 
@@ -107,9 +109,19 @@ static void ssv_read_efuse(struct ssv_dev *sd)
 	if (!is_valid_ether_addr(sd->mac))
 		of_get_mac_address(sd->dev->of_node, sd->mac);
 
+	/*
+	 * Still nothing: derive a stable locally administered address from
+	 * the card identification, so that it survives a reload.
+	 */
 	if (!is_valid_ether_addr(sd->mac)) {
-		eth_random_addr(sd->mac);
-		dev_warn(sd->dev, "no MAC address found, using random %pM\n",
+		u32 h = jhash_2words(sd->func->card->cid.serial,
+				     sd->func->card->cid.manfid, 0);
+
+		sd->mac[0] = 0x02;
+		sd->mac[1] = sd->func->card->cid.oemid;
+		put_unaligned_le32(h, sd->mac + 2);
+		eth_addr_inc(sd->mac);	/* keeps it valid if the hash is zero */
+		dev_warn(sd->dev, "no MAC address in e-fuse or device tree, using %pM\n",
 			 sd->mac);
 	}
 }
@@ -224,12 +236,8 @@ static int ssv_mac_init(struct ssv_dev *sd)
 	ssv_set_macaddr(sd, sd->mac);
 	ssv_set_bssid(sd, zero_bssid);
 
-	/* data and control frames go straight to the host; the CCMP header
-	 * is built in software, so the security engine only decrypts
-	 */
-	ssv_reg_write(sd, ADR_RX_FLOW_DATA, M_ENG_MACRX |
-		      (M_ENG_ENCRYPT_SEC << 4) | (M_ENG_MIC_SEC << 8) |
-		      (M_ENG_HWHCI << 12));
+	/* everything goes straight to the host: crypto is done in software */
+	ssv_reg_write(sd, ADR_RX_FLOW_DATA, M_ENG_MACRX | (M_ENG_HWHCI << 4));
 	ssv_reg_write(sd, ADR_RX_FLOW_MNG, M_ENG_MACRX | (M_ENG_HWHCI << 4));
 	ssv_reg_write(sd, ADR_RX_FLOW_CTRL, M_ENG_MACRX | (M_ENG_HWHCI << 4));
 
@@ -256,9 +264,6 @@ int ssv_hw_start(struct ssv_dev *sd)
 {
 	int ret;
 
-	ssv_read_efuse(sd);
-	dev_info(sd->dev, "chip %s, MAC %pM\n", sd->chip_id, sd->mac);
-
 	ssv_phy_enable(sd, false);
 	ret = ssv_phy_init(sd);
 	if (ret)
@@ -273,5 +278,28 @@ int ssv_hw_start(struct ssv_dev *sd)
 
 	ssv_phy_enable(sd, true);
 	ssv_set_bandwidth(sd, false, false);
-	return ssv_set_channel(sd, 6);
+	return ssv_set_channel(sd, sd->channel);
+}
+
+/* Read what the driver needs before registering with mac80211. */
+void ssv_hw_probe(struct ssv_dev *sd)
+{
+	ssv_read_efuse(sd);
+	dev_info(sd->dev, "chip %s, MAC %pM\n", sd->chip_id, sd->mac);
+}
+
+int ssv_wsid_add(struct ssv_dev *sd, int wsid, const u8 *addr)
+{
+	int ret;
+
+	ret = ssv_reg_write(sd, wsid_reg[wsid] + WSID_PEER_MAC0,
+			    get_unaligned_le32(addr));
+	ret = ret ?: ssv_reg_write(sd, wsid_reg[wsid] + WSID_PEER_MAC1,
+				   get_unaligned_le16(addr + 4));
+	return ret ?: ssv_reg_write(sd, wsid_reg[wsid], 1);
+}
+
+void ssv_wsid_del(struct ssv_dev *sd, int wsid)
+{
+	ssv_reg_write(sd, wsid_reg[wsid], 0);
 }

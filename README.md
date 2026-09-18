@@ -17,8 +17,18 @@ fabricante (`ssv6x5x`), que está no branch `main` deste repositório.
   aleatório, nessa ordem;
 - carga do firmware `ssv6x5x-sw.bin` com verificação de checksum.
 
-O que falta: caminho de dados (descritores de TX e RX), registro no
-mac80211 e controle de taxa.
+- caminho de dados: descritores de TX e RX, fila por categoria de acesso
+  com uma thread de escrita, e status de envio real (o chip devolve o
+  descritor com o resultado de cada série de taxas);
+- registro no mac80211 como cliente (modo *managed*), 2,4 GHz, HT20;
+- criptografia em software (o motor do chip fica fora do caminho).
+
+O que falta: agregação (AMPDU), HT40, modo AP, banda de 5 GHz,
+criptografia por hardware e economia de energia.
+
+Medido num RK322x ligado a um AP a poucos metros (MCS7 na recepção,
+MCS5 no envio): **5,9 Mbit/s de subida e 5,0 Mbit/s de descida**. Sem
+agregação, cada quadro custa uma transação SDIO, e é isso que limita.
 
 As calibrações levam cerca de 90 ms e são refeitas a cada carga do
 módulo; o resultado aparece no `dmesg` em nível de depuração.

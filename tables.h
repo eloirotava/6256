@@ -162,6 +162,15 @@ static const struct ssv_reg phy_table[] = {
 	{ 0xccb0ebfc, 0x00000001 },
 };
 
+/* Hardware station table: the valid flag, then the peer address. */
+static const u32 wsid_reg[] = {
+	ADR_WSID0, ADR_WSID1, ADR_WSID2, ADR_WSID3,
+	ADR_WSID4, ADR_WSID5, ADR_WSID6, ADR_WSID7,
+};
+
+#define WSID_PEER_MAC0		4
+#define WSID_PEER_MAC1		8
+
 #define DECI(_type, _mask, _action, _drop) \
 	((_type) << 9 | (_mask) << 3 | (_action) << 1 | (_drop))
 #define DECI_NOP	0

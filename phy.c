@@ -280,6 +280,20 @@ static void ssv_single_band_patch(struct ssv_dev *sd)
 			xtal_cp_isel[SSV_XTAL]);
 }
 
+/*
+ * Turn the baseband blocks on: receive and transmit chains, their FIFOs
+ * and the 11b and 11g/n demodulators.  The master enable is separate.
+ */
+static int ssv_phy_mode(struct ssv_dev *sd, bool enable)
+{
+	u32 val = RG_PHYRX_MD_EN | RG_PHYTX_MD_EN | RG_PHY11GN_MD_EN |
+		  RG_PHY11B_MD_EN | RG_PHYRXFIFO_MD_EN | RG_PHYTXFIFO_MD_EN |
+		  RG_PHY11BGN_MD_EN;
+
+	return ssv_reg_write(sd, ADR_WIFI_PHY_COMMON_ENABLE_REG,
+			     enable ? val : 0);
+}
+
 int ssv_phy_enable(struct ssv_dev *sd, bool enable)
 {
 	return ssv_field_write(sd, ADR_WIFI_PHY_COMMON_ENABLE_REG,
@@ -361,5 +375,6 @@ int ssv_phy_init(struct ssv_dev *sd)
 	ssv_field_write(sd, ADR_CLOCK_SELECTION, CLK_DIGI_SEL, CLK_DIGI_80M);
 	udelay(1);
 
-	return ssv_calibrate(sd);
+	ret = ssv_calibrate(sd);
+	return ret ?: ssv_phy_mode(sd, true);
 }

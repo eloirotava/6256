@@ -1,0 +1,147 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+/*
+ * SSV6256 receive path, run from the SDIO interrupt.
+ *
+ * The same path carries three kinds of buffer, told apart by the c_type
+ * of the first word: received frames, firmware events and the transmit
+ * reports the chip returns for frames it has sent.
+ */
+#include <linux/unaligned.h>
+
+#include "ssv6256.h"
+
+#define RX_BUDGET	32
+
+static int ssv_read_status(struct ssv_dev *sd, u8 *status)
+{
+	int ret;
+
+	sdio_claim_host(sd->func);
+	*status = sdio_readb(sd->func, SDIO_REG_INT_STATUS, &ret);
+	sdio_release_host(sd->func);
+	return ret;
+}
+
+/*
+ * The length of the waiting buffer lives in two function-1 registers.
+ * The chip does not accept CMD53 on them, so it takes two CMD52s.
+ */
+static struct sk_buff *ssv_read_frame(struct ssv_dev *sd)
+{
+	struct sdio_func *func = sd->func;
+	struct sk_buff *skb = NULL;
+	size_t aligned;
+	u32 len;
+	int ret;
+
+	sdio_claim_host(func);
+	len = sdio_readb(func, SDIO_REG_RX_LEN0, &ret);
+	if (!ret)
+		len |= sdio_readb(func, SDIO_REG_RX_LEN1, &ret) << 8;
+	if (ret)
+		goto out;
+	aligned = sdio_align_size(func, len);
+	if (len < sizeof(struct ssv_rx_desc) || aligned > SSV_RX_BUF_SIZE) {
+		dev_err_ratelimited(sd->dev, "bogus RX length %u\n", len);
+		goto out;
+	}
+	skb = dev_alloc_skb(aligned);
+	if (!skb)
+		goto out;
+	ret = sdio_memcpy_fromio(func, skb->data, sd->data_port, aligned);
+	if (ret) {
+		dev_err_ratelimited(sd->dev, "RX read failed: %d\n", ret);
+		dev_kfree_skb(skb);
+		skb = NULL;
+		goto out;
+	}
+	skb_put(skb, len);
+out:
+	sdio_release_host(func);
+	return skb;
+}
+
+/* Turn the chip's rate byte into what mac80211 wants to hear. */
+static void ssv_rx_rate(struct ieee80211_rx_status *rxs, u8 code)
+{
+	switch (FIELD_GET(RATE_PHY_MODE, code)) {
+	case RATE_PHY_HT:
+		rxs->encoding = RX_ENC_HT;
+		if (code & RATE_HT40)
+			rxs->bw = RATE_INFO_BW_40;
+		if (code & RATE_SHORT)
+			rxs->enc_flags |= RX_ENC_FLAG_SHORT_GI;
+		rxs->rate_idx = FIELD_GET(RATE_INDEX, code);
+		break;
+	case RATE_PHY_OFDM:
+		/* the band lists the four CCK rates first */
+		rxs->rate_idx = FIELD_GET(RATE_INDEX, code) + 4;
+		break;
+	default:
+		if (code & RATE_SHORT)
+			rxs->enc_flags |= RX_ENC_FLAG_SHORTPRE;
+		rxs->rate_idx = FIELD_GET(RATE_INDEX, code) & 3;
+		break;
+	}
+}
+
+static void ssv_rx_frame(struct ssv_dev *sd, struct sk_buff *skb)
+{
+	struct ssv_rx_desc *rxd = (struct ssv_rx_desc *)skb->data;
+	struct ssv_rxphy_info *phy = (struct ssv_rxphy_info *)(rxd + 1);
+	struct ieee80211_rx_status *rxs = IEEE80211_SKB_RXCB(skb);
+	u32 w0 = le32_to_cpu(phy->w0);
+	u32 len = le32_get_bits(rxd->w0, RXD0_LEN);
+
+	/* the SDIO read is padded to the block size; the descriptor is not */
+	if (len > skb->len || len < SSV_RX_DESC_LEN + SSV_RX_PINFO_PAD + 10) {
+		dev_kfree_skb(skb);
+		return;
+	}
+	skb_trim(skb, len);
+
+	memset(rxs, 0, sizeof(*rxs));
+	ssv_rx_rate(rxs, FIELD_GET(RXPHY0_RATE, w0));
+	rxs->band = NL80211_BAND_2GHZ;
+	rxs->freq = ieee80211_channel_to_frequency(sd->channel,
+						   NL80211_BAND_2GHZ);
+	rxs->signal = -(int)le32_get_bits(phy->w1, RXPHY1_RSSI);
+	if (w0 & RXPHY0_AGGREGATE)
+		rxs->flag |= RX_FLAG_NO_SIGNAL_VAL;
+
+	skb_pull(skb, SSV_RX_DESC_LEN);
+	skb_trim(skb, skb->len - SSV_RX_PINFO_PAD);
+	ieee80211_rx_irqsafe(sd->hw, skb);
+}
+
+void ssv_rx_irq(struct ssv_dev *sd)
+{
+	u8 status;
+	int n = 0;
+
+	while (n < RX_BUDGET) {
+		struct sk_buff *skb;
+		struct ssv_rx_desc *rxd;
+
+		if (ssv_read_status(sd, &status) || !(status & SSV_INT_RX))
+			break;
+		skb = ssv_read_frame(sd);
+		if (!skb)
+			break;
+		n++;
+		rxd = (struct ssv_rx_desc *)skb->data;
+		switch (le32_get_bits(rxd->w0, RXD0_C_TYPE)) {
+		case SSV_CTYPE_RATE_RPT:
+			ssv_tx_status(sd, skb);
+			dev_kfree_skb(skb);
+			break;
+		case SSV_CTYPE_HOST_EVENT:
+			/* watchdog ticks and firmware logs */
+			dev_kfree_skb(skb);
+			break;
+		default:
+			ssv_rx_frame(sd, skb);
+			break;
+		}
+	}
+}

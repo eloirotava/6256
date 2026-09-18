@@ -96,6 +96,50 @@ int ssv_write_data(struct ssv_dev *sd, const u8 *buf, size_t len)
 	return ret;
 }
 
+int ssv_irq_mask(struct ssv_dev *sd, u8 mask)
+{
+	int ret;
+
+	sdio_claim_host(sd->func);
+	sdio_writeb(sd->func, mask, SDIO_REG_INT_MASK, &ret);
+	sdio_release_host(sd->func);
+	return ret;
+}
+
+static void ssv_sdio_irq(struct sdio_func *func)
+{
+	struct ssv_dev *sd = sdio_get_drvdata(func);
+
+	/*
+	 * The MMC core calls us with the host claimed and the RX path claims
+	 * it again (nested claims by the same task are fine).  Releasing it
+	 * here instead would let sdio_release_irq() take the host and wait
+	 * for this thread while the thread waits for the host.
+	 */
+	if (sd && sd->started)
+		ssv_rx_irq(sd);
+}
+
+int ssv_irq_enable(struct ssv_dev *sd)
+{
+	int ret;
+
+	sdio_claim_host(sd->func);
+	ret = sdio_claim_irq(sd->func, ssv_sdio_irq);
+	sdio_release_host(sd->func);
+	if (ret)
+		return ret;
+	return ssv_irq_mask(sd, (u8)~SSV_INT_RX);
+}
+
+void ssv_irq_disable(struct ssv_dev *sd)
+{
+	ssv_irq_mask(sd, 0xff);
+	sdio_claim_host(sd->func);
+	sdio_release_irq(sd->func);
+	sdio_release_host(sd->func);
+}
+
 static void ssv_set_bus_clock(struct ssv_dev *sd, u32 hz)
 {
 	struct mmc_host *host = sd->func->card->host;
@@ -310,14 +354,15 @@ static int ssv_sdio_probe(struct sdio_func *func, const struct sdio_device_id *i
 	if (func->num != 1)
 		return -ENODEV;
 
-	sd = devm_kzalloc(&func->dev, sizeof(*sd), GFP_KERNEL);
+	sd = ssv_mac_alloc(&func->dev);
 	if (!sd)
 		return -ENOMEM;
 	sd->func = func;
-	sd->dev = &func->dev;
 	sd->io_buf = devm_kzalloc(&func->dev, IO_BUF_SIZE, GFP_KERNEL);
-	if (!sd->io_buf)
-		return -ENOMEM;
+	if (!sd->io_buf) {
+		ret = -ENOMEM;
+		goto err_free;
+	}
 	sdio_set_drvdata(func, sd);
 
 	func->card->quirks |= MMC_QUIRK_LENIENT_FN0 | MMC_QUIRK_BLKSZ_FOR_BYTE_MODE;
@@ -326,7 +371,7 @@ static int ssv_sdio_probe(struct sdio_func *func, const struct sdio_device_id *i
 	ret = ssv_sdio_init(sd);
 	if (ret) {
 		dev_err(sd->dev, "SDIO init failed: %d\n", ret);
-		return ret;
+		goto err_free;
 	}
 	ssv_pmu_wakeup(sd);
 
@@ -334,7 +379,8 @@ static int ssv_sdio_probe(struct sdio_func *func, const struct sdio_device_id *i
 	if (ret)
 		goto err;
 
-	ret = ssv_hw_start(sd);
+	ssv_hw_probe(sd);
+	ret = ssv_mac_register(sd);
 	if (ret)
 		goto err;
 	return 0;
@@ -343,14 +389,20 @@ err:
 	sdio_claim_host(func);
 	sdio_disable_func(func);
 	sdio_release_host(func);
+err_free:
+	ssv_mac_free(sd);
 	return ret;
 }
 
 static void ssv_sdio_remove(struct sdio_func *func)
 {
+	struct ssv_dev *sd = sdio_get_drvdata(func);
+
+	ssv_mac_unregister(sd);
 	sdio_claim_host(func);
 	sdio_disable_func(func);
 	sdio_release_host(func);
+	ssv_mac_free(sd);
 }
 
 static const struct sdio_device_id ssv_sdio_ids[] = {

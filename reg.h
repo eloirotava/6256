@@ -236,6 +236,13 @@
 #define  RG_SYSTEM_BW				BIT(15)
 #define ADR_WIFI_PHY_COMMON_ENABLE_REG		0xccb0e004
 #define  RG_PHY_MD_EN				BIT(0)
+#define  RG_PHYRX_MD_EN				BIT(1)
+#define  RG_PHYTX_MD_EN				BIT(2)
+#define  RG_PHY11GN_MD_EN			BIT(3)
+#define  RG_PHY11B_MD_EN			BIT(4)
+#define  RG_PHYRXFIFO_MD_EN			BIT(5)
+#define  RG_PHYTXFIFO_MD_EN			BIT(6)
+#define  RG_PHY11BGN_MD_EN			BIT(8)
 #define ADR_WIFI_11B_RX_REG_255			0xccb0ebfc
 #define  RG_SOFT_RST_N_11B_RX			BIT(0)
 #define ADR_WIFI_11GN_RX_REG_255		0xccb0f3fc
