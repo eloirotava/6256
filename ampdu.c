@@ -373,7 +373,7 @@ static size_t agg_build(struct ssv_dev *sd, struct ssv_sta *ss,
 					      2, on_air, true, true, true);
 			break;
 		}
-		ssv_fill_rate(&d->rate[i], ssv_rate_code(sd, r),
+		ssv_fill_rate(&d->rate[i], ssv_rate_code(sd, r, info->band),
 			      max_t(u8, r->count, 2), on_air, true, true, last);
 		if (last)
 			break;
@@ -544,7 +544,7 @@ void ssv_agg_ba(struct ssv_dev *sd, struct sk_buff *skb, u8 run_no)
 	struct ssv_agg *a;
 	u8 tid;
 
-	if (skb->len < sizeof(*ba) || !SSV_IS_AGG_RUN_NO(run_no))
+	if (skb->len < sizeof(*ba) || !ssv_is_agg_run_no(run_no))
 		return;
 	tid = le16_to_cpu(ba->control) >> 12;
 
@@ -563,7 +563,7 @@ void ssv_agg_failed(struct ssv_dev *sd, u8 run_no)
 	struct ssv_agg *a;
 	int t;
 
-	if (!SSV_IS_AGG_RUN_NO(run_no))
+	if (!ssv_is_agg_run_no(run_no))
 		return;
 	rcu_read_lock();
 	for (t = 0; t < SSV_AGG_TIDS; t++) {

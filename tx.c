@@ -128,7 +128,8 @@ static u8 ssv_ctrl_rate(u8 code)
 }
 
 /* Translate one mac80211 rate entry into the chip's rate byte. */
-u8 ssv_rate_code(struct ssv_dev *sd, const struct ieee80211_tx_rate *r)
+u8 ssv_rate_code(struct ssv_dev *sd, const struct ieee80211_tx_rate *r,
+		 enum nl80211_band band)
 {
 	u8 code;
 
@@ -144,15 +145,20 @@ u8 ssv_rate_code(struct ssv_dev *sd, const struct ieee80211_tx_rate *r)
 		return code;
 	}
 
-	if (r->idx < 4) {
-		code = FIELD_PREP(RATE_PHY_MODE, RATE_PHY_CCK) |
-		       FIELD_PREP(RATE_INDEX, r->idx);
-		if (r->idx && sd->short_preamble)
-			code |= RATE_SHORT;
-		return code;
+	/* only the 2.4 GHz band lists the four CCK rates first */
+	if (band == NL80211_BAND_2GHZ) {
+		if (r->idx < 4) {
+			code = FIELD_PREP(RATE_PHY_MODE, RATE_PHY_CCK) |
+			       FIELD_PREP(RATE_INDEX, r->idx);
+			if (r->idx && sd->short_preamble)
+				code |= RATE_SHORT;
+			return code;
+		}
+		return FIELD_PREP(RATE_PHY_MODE, RATE_PHY_OFDM) |
+		       FIELD_PREP(RATE_INDEX, r->idx - 4);
 	}
 	return FIELD_PREP(RATE_PHY_MODE, RATE_PHY_OFDM) |
-	       FIELD_PREP(RATE_INDEX, r->idx - 4);
+	       FIELD_PREP(RATE_INDEX, r->idx);
 }
 
 /*
@@ -265,7 +271,7 @@ void ssv_tx_status(struct ssv_dev *sd, struct sk_buff *rpt)
 	}
 
 	/* an aggregate is settled by its Block Ack, unless none came */
-	if (SSV_IS_AGG_RUN_NO(slot)) {
+	if (ssv_is_agg_run_no(slot)) {
 		if (!acked)
 			ssv_agg_failed(sd, slot);
 		return;
@@ -315,14 +321,18 @@ static bool ssv_build_desc(struct ssv_dev *sd, struct sk_buff *skb,
 		if (r->idx < 0) {
 			if (i == 0) {
 				/* no rate control yet: fall back to 1 Mbps */
-				ack = ssv_fill_rate(&d->rate[0], 0, 15,
+				ack = ssv_fill_rate(&d->rate[0],
+						    info->band == NL80211_BAND_2GHZ ?
+						    0 : FIELD_PREP(RATE_PHY_MODE,
+								   RATE_PHY_OFDM),
+						    15,
 						    skb->len - SSV_TX_DESC_LEN +
 						    FCS_LEN, unicast, false,
 						    true);
 			}
 			break;
 		}
-		code = ssv_rate_code(sd, r);
+		code = ssv_rate_code(sd, r, info->band);
 		if (i == 0 && FIELD_GET(RATE_PHY_MODE, code) == RATE_PHY_HT)
 			ht = true;
 		tmp = ssv_fill_rate(&d->rate[i], code, r->count,

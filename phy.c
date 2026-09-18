@@ -300,6 +300,119 @@ static int ssv_cal_rxiq(struct ssv_dev *sd)
 	return ret;
 }
 
+/* The four 5 GHz sub-bands are calibrated on these channels. */
+static const u8 cal_ch_5g[] = { 36, 40, 100, 140 };
+
+/* Receive DC offset of the 5 GHz chain. */
+static int ssv_cal_5g_rxdc(struct ssv_dev *sd)
+{
+	int ret;
+
+	ssv_reg_set_bits(sd, ADR_SX_5GB_CH_TABLE,
+			 FIELD_PREP(RG_SX5GB_CHANNEL, 100) |
+			 RG_SX5GB_RFCH_MAP_EN,
+			 RG_SX5GB_CHANNEL | RG_SX5GB_RFCH_MAP_EN);
+	ssv_field_write(sd, ADR_MODE_REGISTER, RG_CAL_INDEX,
+			CAL_IDX_WIFI5G_RXDC);
+	usleep_range(100, 200);
+
+	ret = ssv_cal_wait(sd, RO_5G_DCCAL_DONE, "5 GHz RX DC");
+	ssv_field_write(sd, ADR_MODE_REGISTER, RG_CAL_INDEX, CAL_IDX_NONE);
+	return ret;
+}
+
+/* Shared setup of the 5 GHz transmit calibrations. */
+static void ssv_cal_5g_tx_setup(struct ssv_dev *sd)
+{
+	ssv_field_write(sd, ADR_MODE_REGISTER, RG_TXGAIN_PHYCTRL, 1);
+	ssv_field_write(sd, ADR_DIGITAL_ADD_ON_4, RG_TONE_SCALE, 0x80);
+	ssv_field_write(sd, ADR_5G_CALIBRATION_TIMER_GAIN_REGISTER,
+			RG_5G_PGAG_TXCAL, 3);
+	ssv_field_write(sd, ADR_RF_D_CAL_TOP_9, RG_PRE_DC_AUTO, 1);
+	ssv_field_write(sd, ADR_DIGITAL_ADD_ON_3, RG_TX_IQCAL_TIME, 1);
+	ssv_reg_set_bits(sd, ADR_RF_D_CAL_TOP_3,
+			 (0xccc << __ffs(RG_PHASE_1M)) |
+			 (0xccc << __ffs(RG_PHASE_RXIQ_1M)),
+			 RG_PHASE_1M | RG_PHASE_RXIQ_1M);
+	ssv_field_write(sd, ADR_RF_D_CAL_TOP_0, RG_ALPHA_SEL, 2);
+}
+
+/* Transmit LO leakage of the 5 GHz chain. */
+static int ssv_cal_5g_txdc(struct ssv_dev *sd)
+{
+	int ret;
+
+	ssv_reg_set_bits(sd, ADR_SX_5GB_CH_TABLE,
+			 FIELD_PREP(RG_SX5GB_CHANNEL, 100) |
+			 RG_SX5GB_RFCH_MAP_EN,
+			 RG_SX5GB_CHANNEL | RG_SX5GB_RFCH_MAP_EN);
+	ssv_cal_5g_tx_setup(sd);
+	ssv_field_write(sd, ADR_5G_CALIBRATION_TIMER_GAIN_REGISTER,
+			RG_5G_TX_GAIN_TXCAL, 2);
+	ssv_field_write(sd, ADR_MODE_REGISTER, RG_CAL_INDEX,
+			CAL_IDX_WIFI5G_TXLO);
+	usleep_range(250, 500);
+
+	ret = ssv_cal_wait(sd, RO_5G_TXDC_DONE, "5 GHz TX DC");
+	ssv_field_write(sd, ADR_MODE_REGISTER, RG_CAL_INDEX, CAL_IDX_NONE);
+	return ret;
+}
+
+/* Transmit IQ imbalance, once per 5 GHz sub-band. */
+static int ssv_cal_5g_txiq(struct ssv_dev *sd)
+{
+	int ret = 0, i;
+
+	ssv_field_write(sd, ADR_SX_5GB_CH_TABLE, RG_SX5GB_RFCH_MAP_EN, 1);
+	ssv_cal_5g_tx_setup(sd);
+
+	for (i = 0; i < ARRAY_SIZE(cal_ch_5g); i++) {
+		ssv_field_write(sd, ADR_SX_5GB_CH_TABLE, RG_SX5GB_CHANNEL,
+				cal_ch_5g[i]);
+		ssv_field_write(sd, ADR_5G_CALIBRATION_TIMER_GAIN_REGISTER,
+				RG_5G_TX_GAIN_TXCAL, 0);
+		ssv_field_write(sd, ADR_MODE_REGISTER, RG_CAL_INDEX,
+				CAL_IDX_WIFI5G_TXIQ);
+		usleep_range(250, 500);
+		ret = ret ?: ssv_cal_wait(sd, RO_5G_TXIQ_DONE, "5 GHz TX IQ");
+		ssv_field_write(sd, ADR_MODE_REGISTER, RG_CAL_INDEX,
+				CAL_IDX_NONE);
+	}
+	return ret;
+}
+
+/* Receive IQ imbalance; the hardware walks the sub-bands itself. */
+static int ssv_cal_5g_rxiq(struct ssv_dev *sd)
+{
+	int ret = 0, i;
+
+	ssv_field_write(sd, ADR_SX_5GB_CH_TABLE, RG_SX5GB_RFCH_MAP_EN, 1);
+	ssv_field_write(sd, ADR_MODE_REGISTER, RG_TXGAIN_PHYCTRL, 1);
+	ssv_reg_set_bits(sd, ADR_5G_CALIBRATION_GAIN_REGISTER1,
+			 3 << __ffs(RG_5G_PGAG_RXIQCAL),
+			 RG_5G_RFG_RXIQCAL | RG_5G_PGAG_RXIQCAL);
+	ssv_field_write(sd, ADR_DIGITAL_ADD_ON_4, RG_TONE_SCALE, 0x80);
+	ssv_field_write(sd, ADR_RF_D_CAL_TOP_9, RG_PRE_DC_AUTO, 1);
+	ssv_field_write(sd, ADR_DIGITAL_ADD_ON_3, RG_TX_IQCAL_TIME, 1);
+	ssv_reg_set_bits(sd, ADR_RF_D_CAL_TOP_3,
+			 (0xccc << __ffs(RG_PHASE_1M)) |
+			 (0xccc << __ffs(RG_PHASE_RXIQ_1M)),
+			 RG_PHASE_1M | RG_PHASE_RXIQ_1M);
+	ssv_field_write(sd, ADR_RF_D_CAL_TOP_0, RG_ALPHA_SEL, 2);
+
+	for (i = 0; i < ARRAY_SIZE(cal_ch_5g); i++) {
+		ssv_field_write(sd, ADR_MODE_REGISTER, RG_CAL_INDEX,
+				CAL_IDX_WIFI5G_RXIQ);
+		usleep_range(250, 500);
+		ret = ret ?: ssv_cal_wait(sd, RO_5G_RXIQ_DONE, "5 GHz RX IQ");
+		ssv_field_write(sd, ADR_RF_D_CAL_TOP_0, RG_PHASE_STEP_VALUE,
+				0xccc);
+		ssv_field_write(sd, ADR_MODE_REGISTER, RG_CAL_INDEX,
+				CAL_IDX_NONE);
+	}
+	return ret;
+}
+
 static int ssv_calibrate(struct ssv_dev *sd)
 {
 	u32 alpha, theta;
@@ -307,6 +420,8 @@ static int ssv_calibrate(struct ssv_dev *sd)
 
 	ssv_field_write(sd, ADR_WIFI_PADPD_2G_CONTROL_REG, RG_DPD_AM_EN, 0);
 	ssv_field_write(sd, ADR_MODE_REGISTER, RG_TXGAIN_PHYCTRL, 1);
+	if (sd->dual_band)
+		ssv_reg_write(sd, ADR_WIFI_PADPD_5G_BB_GAIN_REG, 0x80808080);
 
 	ssv_cal_start(sd);
 	ret = ssv_cal_rxdc(sd);
@@ -320,6 +435,17 @@ static int ssv_calibrate(struct ssv_dev *sd)
 	ret = ret ?: ssv_cal_txiq(sd);
 	ssv_cal_next(sd);
 	ret = ret ?: ssv_cal_rxiq(sd);
+
+	if (sd->dual_band) {
+		ssv_cal_next(sd);
+		ret = ret ?: ssv_cal_5g_rxdc(sd);
+		ssv_cal_next(sd);
+		ret = ret ?: ssv_cal_5g_txdc(sd);
+		ssv_cal_next(sd);
+		ret = ret ?: ssv_cal_5g_txiq(sd);
+		ssv_cal_next(sd);
+		ret = ret ?: ssv_cal_5g_rxiq(sd);
+	}
 	ssv_cal_end(sd);
 	if (ret)
 		return ret;
@@ -367,7 +493,9 @@ static void ssv_single_band_patch(struct ssv_dev *sd)
 {
 	u32 id;
 
-	if (ssv_reg_read(sd, ADR_CHIP_ID_2, &id) || id == DUAL_BAND_ID)
+	sd->dual_band = !ssv_reg_read(sd, ADR_CHIP_ID_2, &id) &&
+			id == DUAL_BAND_ID;
+	if (sd->dual_band)
 		return;
 
 	ssv_field_write(sd, ADR_SX_2_4GB_LPF, RG_SX_LPF_C2_WF, 0xe);

@@ -28,8 +28,12 @@ fabricante (`ssv6x5x`), que está no branch `main` deste repositório.
   memória do chip, e os quadros de grupo para estações dormindo esperam
   o beacon de DTIM na fila 5.
 
-O que falta: banda de 5 GHz, criptografia por hardware e economia de
-energia.
+- banda de 5 GHz nas peças de banda dupla (o chip se identifica como tal
+  no registrador de identificação), com as calibrações próprias da banda.
+
+O que falta: criptografia por hardware (hoje é feita em software, o que
+o processador aguenta com folga nessas taxas), economia de energia e o
+ajuste fino de potência por canal em 5 GHz.
 
 Agregação nos dois sentidos: na recepção o MAC responde aos Block Ack
 sozinho e entrega os subquadros um a um; no envio o host monta o

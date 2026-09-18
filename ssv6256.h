@@ -223,7 +223,10 @@ struct ssv_host_hdr {
 #define SSV_AGG_IDS		64
 #define SSV_AGG_RUN_NO(id)	((id) | SSV_AGG_IDS)
 #define SSV_AGG_ID(run)		((run) & (SSV_AGG_IDS - 1))
-#define SSV_IS_AGG_RUN_NO(run)	((run) >= SSV_AGG_IDS && (run) < 2 * SSV_AGG_IDS)
+static inline bool ssv_is_agg_run_no(u8 run)
+{
+	return run >= SSV_AGG_IDS && run < 2 * SSV_AGG_IDS;
+}
 
 enum ssv_agg_state {
 	SSV_AGG_OFF,
@@ -252,6 +255,7 @@ struct ssv_dev {
 	struct ieee80211_hw *hw;
 	struct ieee80211_vif *vif;
 	struct ieee80211_supported_band band;
+	struct ieee80211_supported_band band5;
 
 	struct mutex mutex;	/* serialises chip access outside the RX path */
 	bool started;
@@ -263,6 +267,7 @@ struct ssv_dev {
 	u8 *io_buf;		/* DMA-safe scratch, used under the SDIO host lock */
 
 	char chip_id[20];
+	bool dual_band;		/* the part also covers 5 GHz */
 	u8 mac[ETH_ALEN];
 	int channel;
 	enum ssv_bandwidth bw;
@@ -337,7 +342,8 @@ void ssv_tx_kick(struct ssv_dev *sd);
 bool ssv_tx_queued(struct ssv_dev *sd);
 int ssv_tid_to_hwq(u8 tid);
 int ssv_ac_to_hwq(u16 ac);
-u8 ssv_rate_code(struct ssv_dev *sd, const struct ieee80211_tx_rate *r);
+u8 ssv_rate_code(struct ssv_dev *sd, const struct ieee80211_tx_rate *r,
+		 enum nl80211_band band);
 u32 ssv_fill_rate(struct ssv_tx_rate *tr, u8 code, u8 tries, u32 len,
 		  bool unicast, bool rts, bool last);
 void ssv_tx_flush(struct ssv_dev *sd);

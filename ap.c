@@ -68,7 +68,8 @@ void ssv_ap_update_beacon(struct ssv_dev *sd)
 			    FIELD_PREP(TXD3_TXQ_IDX, SSV_HW_TXQ_DTIM));
 	d->w5 = cpu_to_le32(FIELD_PREP(TXD5_RATE_RPT_MODE, RATE_RPT_OFF));
 	/* beacons go out at the lowest basic rate, without an ack */
-	ssv_fill_rate(&d->rate[0], ssv_rate_code(sd, &info->control.rates[0]),
+	ssv_fill_rate(&d->rate[0],
+		      ssv_rate_code(sd, &info->control.rates[0], info->band),
 		      1, skb->len + 4, false, false, true);
 	memcpy(buf + SSV_TX_DESC_LEN, skb->data, skb->len);
 

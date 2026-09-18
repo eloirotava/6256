@@ -64,6 +64,9 @@ out:
 /* Turn the chip's rate byte into what mac80211 wants to hear. */
 static void ssv_rx_rate(struct ieee80211_rx_status *rxs, u8 code)
 {
+	/* the 2.4 GHz band lists the four CCK rates before the OFDM ones */
+	u8 ofdm_base = rxs->band == NL80211_BAND_2GHZ ? 4 : 0;
+
 	switch (FIELD_GET(RATE_PHY_MODE, code)) {
 	case RATE_PHY_HT:
 		rxs->encoding = RX_ENC_HT;
@@ -74,8 +77,7 @@ static void ssv_rx_rate(struct ieee80211_rx_status *rxs, u8 code)
 		rxs->rate_idx = FIELD_GET(RATE_INDEX, code);
 		break;
 	case RATE_PHY_OFDM:
-		/* the band lists the four CCK rates first */
-		rxs->rate_idx = FIELD_GET(RATE_INDEX, code) + 4;
+		rxs->rate_idx = FIELD_GET(RATE_INDEX, code) + ofdm_base;
 		break;
 	default:
 		if (code & RATE_SHORT)
@@ -102,10 +104,9 @@ static void ssv_rx_frame(struct ssv_dev *sd, struct sk_buff *skb)
 	skb_trim(skb, len);
 
 	memset(rxs, 0, sizeof(*rxs));
+	rxs->band = sd->channel >= 36 ? NL80211_BAND_5GHZ : NL80211_BAND_2GHZ;
 	ssv_rx_rate(rxs, FIELD_GET(RXPHY0_RATE, w0));
-	rxs->band = NL80211_BAND_2GHZ;
-	rxs->freq = ieee80211_channel_to_frequency(sd->channel,
-						   NL80211_BAND_2GHZ);
+	rxs->freq = ieee80211_channel_to_frequency(sd->channel, rxs->band);
 	rxs->signal = -(int)le32_get_bits(phy->w1, RXPHY1_RSSI);
 	if (w0 & RXPHY0_AGGREGATE)
 		rxs->flag |= RX_FLAG_NO_SIGNAL_VAL;

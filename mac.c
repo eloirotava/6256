@@ -7,14 +7,25 @@
 
 #include "ssv6256.h"
 
-#define CHAN(_ch, _freq) { .band = NL80211_BAND_2GHZ, .center_freq = (_freq), \
-			   .hw_value = (_ch), .max_power = 20 }
+#define CHAN(_band, _ch, _freq) { .band = (_band), .center_freq = (_freq), \
+				  .hw_value = (_ch), .max_power = 20 }
+#define CHAN2(_ch, _freq)	CHAN(NL80211_BAND_2GHZ, _ch, _freq)
+#define CHAN5(_ch, _freq)	CHAN(NL80211_BAND_5GHZ, _ch, _freq)
 
 static struct ieee80211_channel ssv_channels[] = {
-	CHAN(1, 2412), CHAN(2, 2417), CHAN(3, 2422), CHAN(4, 2427),
-	CHAN(5, 2432), CHAN(6, 2437), CHAN(7, 2442), CHAN(8, 2447),
-	CHAN(9, 2452), CHAN(10, 2457), CHAN(11, 2462), CHAN(12, 2467),
-	CHAN(13, 2472), CHAN(14, 2484),
+	CHAN2(1, 2412), CHAN2(2, 2417), CHAN2(3, 2422), CHAN2(4, 2427),
+	CHAN2(5, 2432), CHAN2(6, 2437), CHAN2(7, 2442), CHAN2(8, 2447),
+	CHAN2(9, 2452), CHAN2(10, 2457), CHAN2(11, 2462), CHAN2(12, 2467),
+	CHAN2(13, 2472), CHAN2(14, 2484),
+};
+
+static struct ieee80211_channel ssv_channels_5g[] = {
+	CHAN5(36, 5180), CHAN5(40, 5200), CHAN5(44, 5220), CHAN5(48, 5240),
+	CHAN5(52, 5260), CHAN5(56, 5280), CHAN5(60, 5300), CHAN5(64, 5320),
+	CHAN5(100, 5500), CHAN5(104, 5520), CHAN5(108, 5540), CHAN5(112, 5560),
+	CHAN5(116, 5580), CHAN5(120, 5600), CHAN5(124, 5620), CHAN5(128, 5640),
+	CHAN5(132, 5660), CHAN5(136, 5680), CHAN5(140, 5700), CHAN5(144, 5720),
+	CHAN5(149, 5745), CHAN5(153, 5765), CHAN5(157, 5785), CHAN5(161, 5805), CHAN5(165, 5825),
 };
 
 /*
@@ -353,7 +364,16 @@ int ssv_mac_register(struct ssv_dev *sd)
 	sd->band.bitrates = ssv_bitrates;
 	sd->band.n_bitrates = ARRAY_SIZE(ssv_bitrates);
 
-	/* one spatial stream; 40 MHz and aggregation come later */
+	/* the 5 GHz band has no CCK rates: it starts at 6 Mbit/s */
+	if (sd->dual_band) {
+		sd->band5.band = NL80211_BAND_5GHZ;
+		sd->band5.channels = ssv_channels_5g;
+		sd->band5.n_channels = ARRAY_SIZE(ssv_channels_5g);
+		sd->band5.bitrates = &ssv_bitrates[4];
+		sd->band5.n_bitrates = ARRAY_SIZE(ssv_bitrates) - 4;
+	}
+
+	/* one spatial stream, 20 or 40 MHz */
 	ht->ht_supported = true;
 	ht->cap = IEEE80211_HT_CAP_SGI_20 | IEEE80211_HT_CAP_SM_PS;
 	ht->ampdu_factor = IEEE80211_HT_MAX_AMPDU_32K;
@@ -362,6 +382,10 @@ int ssv_mac_register(struct ssv_dev *sd)
 	ht->mcs.rx_highest = cpu_to_le16(150);
 	ht->mcs.tx_params = IEEE80211_HT_MCS_TX_DEFINED;
 	hw->wiphy->bands[NL80211_BAND_2GHZ] = &sd->band;
+	if (sd->dual_band) {
+		sd->band5.ht_cap = sd->band.ht_cap;
+		hw->wiphy->bands[NL80211_BAND_5GHZ] = &sd->band5;
+	}
 
 	SET_IEEE80211_PERM_ADDR(hw, sd->mac);
 
