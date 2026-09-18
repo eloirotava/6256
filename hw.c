@@ -3,7 +3,8 @@
  * MAC setup: reset, timing, frame buffer accounting, receive filtering
  * and the per-interface registers.
  *
- * Sequence taken from the vendor driver (ssv6006C_mac.c):
+ * Sequence and register tables taken from the vendor driver
+ * (ssv6006C_mac.c and dev_tbl.h):
  * Copyright (c) 2015 South Silicon Valley Microelectronics Inc.
  * Copyright (c) 2015 iComm Corporation
  */
@@ -15,7 +16,89 @@
 #include <linux/unaligned.h>
 
 #include "ssv6256.h"
-#include "tables.h"
+
+/* Reserved head room in front of every buffered frame, in 16-byte units. */
+#define TX_PKT_RSVD_SETTING	3
+/* Bytes of descriptor the hardware skips to reach the 802.11 header. */
+#define PB_OFFSET_BYTES		80
+
+static const struct ssv_reg mac_ini_table[] = {
+	{ ADR_CONTROL,		0x12000006 },
+	{ ADR_RX_TIME_STAMP_CFG, (28 << 8) | 0x01 },
+	{ ADR_GLBLE_SET,	DUP_FLT |
+				(TX_PKT_RSVD_SETTING << 18) |
+				(PB_OFFSET_BYTES << 8) },
+	{ ADR_TX_ETHER_TYPE_0,	0x00000000 },
+	{ ADR_TX_ETHER_TYPE_1,	0x00000000 },
+	{ ADR_RX_ETHER_TYPE_0,	0x00000000 },
+	{ ADR_RX_ETHER_TYPE_1,	0x00000000 },
+	{ ADR_REASON_TRAP0,	0x7fbc7f87 },
+	{ ADR_REASON_TRAP1,	0x0000013f },
+	{ ADR_TRAP_HW_ID,	M_ENG_CPU },
+	{ ADR_WSID0,		0x00000000 },
+	{ ADR_WSID1,		0x00000000 },
+	{ ADR_WSID2,		0x00000000 },
+	{ ADR_WSID3,		0x00000000 },
+	{ ADR_WSID4,		0x00000000 },
+	{ ADR_WSID5,		0x00000000 },
+	{ ADR_WSID6,		0x00000000 },
+	{ ADR_WSID7,		0x00000000 },
+	{ ADR_MASK_TYPHOST_INT_MAP, 0xffff7fff },
+	{ ADR_MASK_TYPHOST_INT_MAP_15, 0xff0fffff },
+	{ ADR_MTX_RESPFRM_RATE_TABLE_01, 0x0000 },
+	{ ADR_MTX_RESPFRM_RATE_TABLE_02, 0x0000 },
+	{ ADR_MTX_RESPFRM_RATE_TABLE_03, 0x0002 },
+	{ ADR_MTX_RESPFRM_RATE_TABLE_11, 0x0000 },
+	{ ADR_MTX_RESPFRM_RATE_TABLE_12, 0x0000 },
+	{ ADR_MTX_RESPFRM_RATE_TABLE_13, 0x0012 },
+	{ ADR_MTX_RESPFRM_RATE_TABLE_92_B2, 0x9090 },
+	{ ADR_MTX_RESPFRM_RATE_TABLE_94_B4, 0x9292 },
+	{ ADR_MTX_RESPFRM_RATE_TABLE_C1_E1, 0x9090 },
+	{ ADR_MTX_RESPFRM_RATE_TABLE_C3_E3, 0x9292 },
+	{ ADR_MTX_RESPFRM_RATE_TABLE_D1_F1, 0x9090 },
+	{ ADR_MTX_RESPFRM_RATE_TABLE_D3_F3, 0x9292 },
+	{ ADR_BA_CTRL,		0x9 },
+};
+
+/* Hardware station table: the valid flag, then the peer address. */
+static const u32 wsid_reg[] = {
+	ADR_WSID0, ADR_WSID1, ADR_WSID2, ADR_WSID3,
+	ADR_WSID4, ADR_WSID5, ADR_WSID6, ADR_WSID7,
+};
+
+#define WSID_PEER_MAC0		4
+#define WSID_PEER_MAC1		8
+
+#define DECI(_type, _mask, _action, _drop) \
+	((_type) << 9 | (_mask) << 3 | (_action) << 1 | (_drop))
+#define DECI_NOP	0
+#define DECI_NAV_UPD	1
+#define DECI_NAV_RST	2
+#define DECI_ACK	3
+
+/* MAC RX filter: 16 decision entries followed by 9 enable masks. */
+static const u16 deci_tbl[] = {
+	DECI(0x1e, 0x3e, DECI_NAV_RST, 1),
+	DECI(0x18, 0x3e, DECI_ACK, 0),
+	DECI(0x1a, 0x3f, DECI_ACK, 1),
+	DECI(0x10, 0x38, DECI_NOP, 1),
+	DECI(0x25, 0x3f, DECI_NOP, 1),
+	DECI(0x26, 0x36, DECI_NOP, 1),
+	DECI(0x08, 0x3f, DECI_NOP, 0),
+	DECI(0x05, 0x3f, DECI_ACK, 0),
+	DECI(0x0b, 0x3f, DECI_ACK, 0),
+	DECI(0x01, 0x3d, DECI_ACK, 0),
+	DECI(0x20, 0x30, DECI_ACK, 0),
+	DECI(0x00, 0x00, DECI_ACK, 0),
+	DECI(0x00, 0x00, DECI_NOP, 1),
+	DECI(0x00, 0x00, DECI_NAV_UPD, 1),
+	DECI(0x00, 0x00, DECI_NAV_RST, 1),
+	DECI(0x00, 0x00, DECI_ACK, 1),
+	0x2008, 0x1001, 0x0808, 0x1040, 0x2008, 0x800e, 0x0bb8, 0x2b88, 0x0800,
+};
+
+#define DECI_TBL1_SIZE	16
+#define DECI_TBL2_SIZE	9
 
 /*
  * Frame buffer accounting.  The chip holds 128 packet ids and 256 pages
@@ -254,6 +337,8 @@ static int ssv_mac_init(struct ssv_dev *sd)
 	ssv_reg_write(sd, ADR_AMPDU_SCOREBOAD_SIZE, MAX_RX_AGGR_SIZE);
 	/* the MAC answers Block Ack requests itself, on any TID */
 	ssv_field_write(sd, ADR_BA_TID, BA_TID, 0xf);
+	/* and computes the FCS of every MPDU inside an aggregate */
+	ssv_field_write(sd, ADR_MTX_MISC_EN, MTX_AMPDU_CRC8_AUTO, 1);
 	return 0;
 }
 

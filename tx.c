@@ -19,6 +19,28 @@
 
 static const u8 ac_to_hwq[IEEE80211_NUM_ACS] = { 3, 2, 1, 0 };
 
+int ssv_ac_to_hwq(u16 ac)
+{
+	return ac_to_hwq[ac & 3];
+}
+
+/* TID to access category, as in the WMM tables. */
+int ssv_tid_to_hwq(u8 tid)
+{
+	static const u8 tid_to_ac[8] = {
+		IEEE80211_AC_BE, IEEE80211_AC_BK, IEEE80211_AC_BK,
+		IEEE80211_AC_BE, IEEE80211_AC_VI, IEEE80211_AC_VI,
+		IEEE80211_AC_VO, IEEE80211_AC_VO,
+	};
+
+	return ac_to_hwq[tid_to_ac[tid & 7]];
+}
+
+void ssv_tx_kick(struct ssv_dev *sd)
+{
+	wake_up(&sd->tx_wait);
+}
+
 /* Airtime constants, microseconds */
 #define CCK_SIFS		10
 #define CCK_PREAMBLE_BITS	144
@@ -110,7 +132,7 @@ static u8 ssv_ctrl_rate(u8 code)
 }
 
 /* Translate one mac80211 rate entry into the chip's rate byte. */
-static u8 ssv_rate_code(struct ssv_dev *sd, const struct ieee80211_tx_rate *r)
+u8 ssv_rate_code(struct ssv_dev *sd, const struct ieee80211_tx_rate *r)
 {
 	u8 code;
 
@@ -141,8 +163,8 @@ static u8 ssv_rate_code(struct ssv_dev *sd, const struct ieee80211_tx_rate *r)
  * Fill one rate series.  Returns the ACK duration, which the first
  * series lends to the 802.11 Duration/ID field.
  */
-static u32 ssv_fill_rate(struct ssv_tx_rate *tr, u8 code, u8 tries, u32 len,
-			 bool unicast, bool rts, bool last)
+u32 ssv_fill_rate(struct ssv_tx_rate *tr, u8 code, u8 tries, u32 len,
+		  bool unicast, bool rts, bool last)
 {
 	u8 ctrl = ssv_ctrl_rate(code);
 	u32 frame = ssv_airtime(code, len);
@@ -235,9 +257,6 @@ void ssv_tx_status(struct ssv_dev *sd, struct sk_buff *rpt)
 	if (rpt->len < SSV_TX_DESC_LEN)
 		return;
 	slot = le32_get_bits(d->w3, TXD3_PKT_RUN_NO);
-	skb = ssv_status_take(sd, slot);
-	if (!skb)
-		return;
 
 	for (i = 0; i < SSV_TX_MAX_RATES; i++) {
 		u32 w1 = le32_to_cpu(d->rate[i].w1);
@@ -248,6 +267,17 @@ void ssv_tx_status(struct ssv_dev *sd, struct sk_buff *rpt)
 		if (w1 & TXR1_IS_LAST_RATE)
 			break;
 	}
+
+	/* an aggregate is settled by its Block Ack, unless none came */
+	if (SSV_IS_AGG_RUN_NO(slot)) {
+		if (!acked)
+			ssv_agg_failed(sd, slot);
+		return;
+	}
+
+	skb = ssv_status_take(sd, slot);
+	if (!skb)
+		return;
 	ssv_tx_done(sd, skb, acked, tries);
 }
 
@@ -377,6 +407,33 @@ static struct sk_buff *ssv_tx_next(struct ssv_dev *sd)
 	return skb;
 }
 
+/* Frames the driver still holds, in either path. */
+bool ssv_tx_queued(struct ssv_dev *sd)
+{
+	int q, w, t;
+
+	for (q = 0; q < HW_TXQ_NUM; q++)
+		if (!skb_queue_empty(&sd->txq[q]))
+			return true;
+	for (w = 0; w < SSV_NUM_STA; w++) {
+		struct ieee80211_sta *sta;
+		struct ssv_sta *ss;
+
+		rcu_read_lock();
+		sta = rcu_dereference(sd->sta[w]);
+		ss = sta ? (struct ssv_sta *)sta->drv_priv : NULL;
+		for (t = 0; ss && t < SSV_AGG_TIDS; t++) {
+			if (!skb_queue_empty(&ss->agg[t].q) ||
+			    !skb_queue_empty(&ss->agg[t].retry)) {
+				rcu_read_unlock();
+				return true;
+			}
+		}
+		rcu_read_unlock();
+	}
+	return false;
+}
+
 static bool ssv_tx_pending(struct ssv_dev *sd)
 {
 	int q;
@@ -424,8 +481,12 @@ static int ssv_tx_thread(void *data)
 
 	while (!kthread_should_stop()) {
 		struct sk_buff *skb = ssv_tx_next(sd);
+		bool sent;
 
 		ssv_tx_expire(sd);
+		sent = ssv_agg_pump(sd);
+		if (!skb && sent)
+			continue;
 		if (!skb) {
 			wait_event_interruptible_timeout(sd->tx_wait,
 							 ssv_tx_pending(sd) ||
@@ -452,6 +513,10 @@ void ssv_tx(struct ieee80211_hw *hw, struct ieee80211_tx_control *control,
 	else
 		hwq = ac_to_hwq[skb_get_queue_mapping(skb) & 3];
 
+	if (sd->started && sta && ssv_agg_tx(sd, sta, skb)) {
+		wake_up(&sd->tx_wait);
+		return;
+	}
 	if (!sd->started || !ssv_build_desc(sd, skb, sta, hwq)) {
 		ieee80211_free_txskb(hw, skb);
 		return;
@@ -464,6 +529,8 @@ void ssv_tx_flush(struct ssv_dev *sd)
 {
 	struct sk_buff *skb;
 	int i;
+
+	ssv_agg_flush_all(sd);
 
 	for (i = 0; i < HW_TXQ_NUM; i++)
 		while ((skb = skb_dequeue(&sd->txq[i])))

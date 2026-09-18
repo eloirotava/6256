@@ -47,8 +47,8 @@
 
 #define IO_BUF_SIZE		16
 
-/* Bounce buffer for one frame plus its descriptor. */
-#define SSV_TX_BUF_SIZE		4096
+/* Bounce buffer for one aggregate plus its descriptor. */
+#define SSV_TX_BUF_SIZE		16384
 /* Largest frame the chip hands back, including descriptor and padding. */
 #define SSV_RX_BUF_SIZE		4096
 
@@ -61,7 +61,11 @@
 #define M_ENG_MIC_SEC		0x0c
 #define M_ENG_TRASH_CAN		0x0f
 
-struct ssv_reg;
+/* One entry of a register table written verbatim at bring-up. */
+struct ssv_reg {
+	u32 addr;
+	u32 data;
+};
 
 /* Frame types in the c_type field of every descriptor word 0 */
 #define SSV_CTYPE_TXREQ		2
@@ -151,6 +155,7 @@ struct ssv_tx_desc {
 #define RXD0_LEN		GENMASK(15, 0)
 #define RXD0_C_TYPE		GENMASK(18, 16)
 #define RXD2_RX_RESULT		GENMASK(23, 16)
+#define RXD3_PKT_RUN_NO		GENMASK(15, 8)
 #define RXD3_WSID		GENMASK(22, 19)
 
 struct ssv_rx_desc {
@@ -199,8 +204,34 @@ struct ssv_host_hdr {
 /* How long to wait for a report before giving up on a frame. */
 #define SSV_STATUS_TIMEOUT	(HZ / 2)
 
+/* Aggregation state, one per traffic identifier of a station. */
+#define SSV_AGG_TIDS		8
+#define SSV_AGG_WINDOW		64
+/* Run numbers: 0..31 identify single frames, 64..127 whole aggregates. */
+#define SSV_AGG_IDS		64
+#define SSV_AGG_RUN_NO(id)	((id) | SSV_AGG_IDS)
+#define SSV_AGG_ID(run)		((run) & (SSV_AGG_IDS - 1))
+#define SSV_IS_AGG_RUN_NO(run)	((run) >= SSV_AGG_IDS && (run) < 2 * SSV_AGG_IDS)
+
+enum ssv_agg_state {
+	SSV_AGG_OFF,
+	SSV_AGG_STARTING,
+	SSV_AGG_OPERATIONAL,
+};
+
+struct ssv_agg {
+	struct sk_buff_head q;		/* waiting to be aggregated */
+	struct sk_buff_head retry;	/* unacknowledged, to send again */
+	struct sk_buff_head inflight;	/* handed to the chip */
+	unsigned long retry_start;	/* when to ask for a session again */
+	u16 buf_size;			/* window the peer granted */
+	u8 tries[SSV_AGG_WINDOW];
+	u8 state;
+};
+
 struct ssv_sta {
 	int wsid;
+	struct ssv_agg agg[SSV_AGG_TIDS];
 };
 
 struct ssv_dev {
@@ -225,6 +256,9 @@ struct ssv_dev {
 	bool short_preamble;
 
 	struct ieee80211_sta __rcu *sta[SSV_NUM_STA];
+	spinlock_t sta_lock;	/* protects the aggregation queues */
+	u8 agg_next_id;		/* run number of the next aggregate */
+	struct mutex agg_mutex;	/* serialises aggregate building and sending */
 
 	/* transmit: one queue per hardware queue, drained by a thread */
 	struct sk_buff_head txq[5];
@@ -269,12 +303,31 @@ void ssv_mac_unregister(struct ssv_dev *sd);
 void ssv_tx(struct ieee80211_hw *hw, struct ieee80211_tx_control *control,
 	    struct sk_buff *skb);
 void ssv_tx_status(struct ssv_dev *sd, struct sk_buff *skb);
+void ssv_tx_kick(struct ssv_dev *sd);
+bool ssv_tx_queued(struct ssv_dev *sd);
+int ssv_tid_to_hwq(u8 tid);
+int ssv_ac_to_hwq(u16 ac);
+u8 ssv_rate_code(struct ssv_dev *sd, const struct ieee80211_tx_rate *r);
+u32 ssv_fill_rate(struct ssv_tx_rate *tr, u8 code, u8 tries, u32 len,
+		  bool unicast, bool rts, bool last);
 void ssv_tx_flush(struct ssv_dev *sd);
 int ssv_tx_init(struct ssv_dev *sd);
 void ssv_tx_deinit(struct ssv_dev *sd);
 
 /* rx.c */
 void ssv_rx_irq(struct ssv_dev *sd);
+
+/* ampdu.c */
+void ssv_agg_init(struct ssv_sta *ss);
+void ssv_agg_flush(struct ssv_dev *sd, struct ssv_sta *ss, u8 tid);
+void ssv_agg_flush_all(struct ssv_dev *sd);
+bool ssv_agg_tx(struct ssv_dev *sd, struct ieee80211_sta *sta,
+		struct sk_buff *skb);
+bool ssv_agg_pump(struct ssv_dev *sd);
+void ssv_agg_ba(struct ssv_dev *sd, struct sk_buff *skb, u8 run_no);
+void ssv_agg_failed(struct ssv_dev *sd, u8 run_no);
+int ssv_agg_action(struct ssv_dev *sd, struct ieee80211_vif *vif,
+		   struct ieee80211_ampdu_params *params);
 
 /* phy.c */
 int ssv_phy_init(struct ssv_dev *sd);

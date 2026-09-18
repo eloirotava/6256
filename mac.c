@@ -2,6 +2,7 @@
 /*
  * SSV6256 mac80211 glue: capabilities and callbacks.
  */
+#include <linux/delay.h>
 #include <linux/etherdevice.h>
 
 #include "ssv6256.h"
@@ -131,6 +132,28 @@ static void ssv_bss_info_changed(struct ieee80211_hw *hw,
 	mutex_unlock(&sd->mutex);
 }
 
+/* Channel access parameters of one access category. */
+static int ssv_conf_tx(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
+		       unsigned int link_id, u16 ac,
+		       const struct ieee80211_tx_queue_params *params)
+{
+	struct ssv_dev *sd = hw->priv;
+	int hwq = ssv_ac_to_hwq(ac);
+	u32 val;
+	int ret;
+
+	val = FIELD_PREP(TXQ_AIFSN, params->aifs) |
+	      FIELD_PREP(TXQ_ECWMIN, ilog2(params->cw_min + 1)) |
+	      FIELD_PREP(TXQ_ECWMAX, ilog2(params->cw_max + 1)) |
+	      FIELD_PREP(TXQ_TXOP_LIMIT, params->txop);
+
+	mutex_lock(&sd->mutex);
+	ssv_field_write(sd, ADR_GLBLE_SET, QOS_EN, vif->bss_conf.qos);
+	ret = ssv_reg_write(sd, ADR_TXQ0_MTX_Q_AIFSN + hwq * TXQ_STRIDE, val);
+	mutex_unlock(&sd->mutex);
+	return ret;
+}
+
 static int ssv_sta_add(struct ssv_dev *sd, struct ieee80211_sta *sta)
 {
 	struct ssv_sta *ss = (struct ssv_sta *)sta->drv_priv;
@@ -143,7 +166,10 @@ static int ssv_sta_add(struct ssv_dev *sd, struct ieee80211_sta *sta)
 		return -ENOSPC;
 
 	ss->wsid = wsid;
+	ssv_agg_init(ss);
+	mutex_lock(&sd->agg_mutex);
 	rcu_assign_pointer(sd->sta[wsid], sta);
+	mutex_unlock(&sd->agg_mutex);
 	return ssv_wsid_add(sd, wsid, sta->addr);
 }
 
@@ -151,12 +177,18 @@ static void ssv_sta_del(struct ssv_dev *sd, struct ieee80211_sta *sta)
 {
 	struct ssv_sta *ss = (struct ssv_sta *)sta->drv_priv;
 
+	int tid;
+
 	if (ss->wsid < 0 || ss->wsid >= SSV_NUM_STA)
 		return;
 	ssv_wsid_del(sd, ss->wsid);
+	mutex_lock(&sd->agg_mutex);
 	RCU_INIT_POINTER(sd->sta[ss->wsid], NULL);
+	mutex_unlock(&sd->agg_mutex);
 	ss->wsid = -1;
 	synchronize_rcu();
+	for (tid = 0; tid < SSV_AGG_TIDS; tid++)
+		ssv_agg_flush(sd, ss, tid);
 }
 
 static int ssv_sta_state(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
@@ -178,7 +210,7 @@ static int ssv_sta_state(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 /*
  * Receiving aggregates needs nothing from the driver: the MAC answers
  * the Block Ack requests and hands the subframes over one by one, and
- * mac80211 puts them back in order.  Sending them is not implemented.
+ * mac80211 puts them back in order.  Sending them is in ampdu.c.
  */
 static int ssv_ampdu_action(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 			    struct ieee80211_ampdu_params *params)
@@ -188,8 +220,23 @@ static int ssv_ampdu_action(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 	case IEEE80211_AMPDU_RX_STOP:
 		return 0;
 	default:
-		return -EOPNOTSUPP;
+		return ssv_agg_action(hw->priv, vif, params);
 	}
+}
+
+/* Wait for what is queued to reach the chip, before a channel change. */
+static void ssv_flush(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
+		      u32 queues, bool drop)
+{
+	struct ssv_dev *sd = hw->priv;
+	int i;
+
+	for (i = 0; i < 50 && ssv_tx_queued(sd); i++) {
+		ssv_tx_kick(sd);
+		usleep_range(1000, 2000);
+	}
+	if (drop)
+		ssv_tx_flush(sd);
 }
 
 static const struct ieee80211_ops ssv_ops = {
@@ -207,6 +254,8 @@ static const struct ieee80211_ops ssv_ops = {
 	.configure_filter = ssv_configure_filter,
 	.bss_info_changed = ssv_bss_info_changed,
 	.sta_state = ssv_sta_state,
+	.conf_tx = ssv_conf_tx,
+	.flush = ssv_flush,
 	.ampdu_action = ssv_ampdu_action,
 };
 
@@ -223,6 +272,8 @@ struct ssv_dev *ssv_mac_alloc(struct device *dev)
 	sd->dev = dev;
 	sd->channel = 1;
 	mutex_init(&sd->mutex);
+	mutex_init(&sd->agg_mutex);
+	spin_lock_init(&sd->sta_lock);
 	SET_IEEE80211_DEV(hw, dev);
 	return sd;
 }
@@ -242,6 +293,7 @@ int ssv_mac_register(struct ssv_dev *sd)
 	ieee80211_hw_set(hw, MFP_CAPABLE);
 	ieee80211_hw_set(hw, REPORTS_TX_ACK_STATUS);
 	ieee80211_hw_set(hw, AMPDU_AGGREGATION);
+	ieee80211_hw_set(hw, SUPPORTS_REORDERING_BUFFER);
 	hw->max_rx_aggregation_subframes = 32;
 	hw->queues = IEEE80211_NUM_ACS;
 	hw->extra_tx_headroom = SSV_TX_DESC_LEN;

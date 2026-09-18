@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: GPL-2.0-only
+config SSV6256
+	tristate "iComm SSV6256 SDIO wireless support"
+	depends on MAC80211 && MMC
+	help
+	  This driver supports the iComm SSV6256 802.11b/g/n SDIO chip
+	  (the "Turismo" family, which identifies itself as SSV6006C),
+	  found in TV boxes, in station mode.
+
+	  It needs the firmware file ssv/ssv6x5x-sw.bin.
+
+	  If you choose to build a module, it'll be called ssv6256.

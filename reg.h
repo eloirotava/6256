@@ -73,8 +73,16 @@
 
 /* MAC transmit engine */
 #define ADR_MTX_MISC_EN				0xc6002008
+#define  MTX_AMPDU_CRC8_AUTO			BIT(5)
 #define  MTX_BLOCKTX_IGNORE_CCA_ED_SECONDARY	BIT(14)
 #define ADR_MTX_RATERPT				0xc6002064
+/* One EDCA parameter set per hardware queue, 0x100 apart */
+#define ADR_TXQ0_MTX_Q_AIFSN			0xc6002104
+#define  TXQ_AIFSN				GENMASK(3, 0)
+#define  TXQ_ECWMIN				GENMASK(11, 8)
+#define  TXQ_ECWMAX				GENMASK(15, 12)
+#define  TXQ_TXOP_LIMIT				GENMASK(31, 16)
+#define  TXQ_STRIDE				0x100
 #define  MTX_RATERPT_HWID			GENMASK(3, 0)
 #define ADR_MTX_BCN_EN_MISC			0xc60020a8
 #define  MTX_TSF_TIMER_EN			BIT(5)
@@ -114,6 +122,7 @@
 #define   OPMODE_STA				0
 #define  PB_OFFSET				GENMASK(15, 8)
 #define  SNIFFER_MODE				BIT(16)
+#define  QOS_EN					BIT(4)
 #define  DUP_FLT				BIT(17)
 #define  TX_PKT_RSVD				GENMASK(20, 18)
 #define  CCMP_H_SEL				BIT(22)

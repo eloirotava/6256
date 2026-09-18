@@ -23,11 +23,14 @@ fabricante (`ssv6x5x`), que está no branch `main` deste repositório.
 - registro no mac80211 como cliente (modo *managed*), 2,4 GHz, HT20;
 - criptografia em software (o motor do chip fica fora do caminho).
 
-O que falta: agregação (AMPDU), HT40, modo AP, banda de 5 GHz,
-criptografia por hardware e economia de energia.
+O que falta: HT40, modo AP, banda de 5 GHz, criptografia por hardware e
+economia de energia.
 
-Recebe agregados (A-MPDU): o MAC responde aos Block Ack sozinho e
-entrega os subquadros um a um; enviar agregados ainda não está feito.
+Agregação nos dois sentidos: na recepção o MAC responde aos Block Ack
+sozinho e entrega os subquadros um a um; no envio o host monta o
+agregado (delimitador por MPDU, FCS preenchido pelo MAC) e o Block Ack
+volta marcado com o número do agregado, dizendo quais subquadros
+chegaram.
 
 Medido num RK322x ligado a um AP a poucos metros, com MCS7 nos dois
 sentidos: **5 a 9 Mbit/s**, variando com a ocupação do canal. Sem
