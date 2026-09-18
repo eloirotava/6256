@@ -84,9 +84,32 @@
 #define  TXQ_TXOP_LIMIT				GENMASK(31, 16)
 #define  TXQ_STRIDE				0x100
 #define  MTX_RATERPT_HWID			GENMASK(3, 0)
+/* Beacon: two slots in packet memory, and the timers that send them */
+#define ADR_MTX_BCN_PKT_SET0			0xc6002088
+#define ADR_MTX_BCN_PKT_SET1			0xc600208c
+#define  MTX_BCN_PKT_ID				GENMASK(6, 0)
+#define ADR_MTX_BCN_DTIM_SET0			0xc6002090
+#define ADR_MTX_BCN_DTIM_SET1			0xc6002094
+#define  MTX_DTIM_OFST				GENMASK(9, 0)
+#define ADR_MTX_BCN_DTIM_CONFG			0xc6002098
+#define  MTX_DTIM_NUM				GENMASK(7, 0)
 #define ADR_MTX_BCN_EN_MISC			0xc60020a8
+#define  MTX_BCN_TIMER_EN			BIT(0)
+#define  MTX_TIME_STAMP_AUTO_FILL		BIT(1)
+#define  MTX_DTIM_CNT_AUTO_FILL			BIT(3)
 #define  MTX_TSF_TIMER_EN			BIT(5)
+#define  TXQ5_DTIM_BEACON_BURST_MNG		BIT(16)
+#define  MTX_BCN_AUTO_SEQ_NO			BIT(17)
+#define ADR_MTX_BCN_MISC			0xc60020ac
+#define  MTX_BCN_PKTID_CH_LOCK			BIT(0)
+#define  MTX_BCN_CFG_VLD			GENMASK(2, 1)
+#define  MTX_AUTO_BCN_ONGOING			BIT(3)
+#define ADR_MTX_BCN_PRD				0xc60020b0
+#define  MTX_BCN_PERIOD				GENMASK(15, 0)
+#define ADR_MTX_TIME_IFS			0xc60020c4
+#define  MTX_SIFS				GENMASK(20, 16)
 #define ADR_MTX_TIME_FINETUNE			0xc60020c8
+#define  MTX_SIGEXT				GENMASK(27, 24)
 #define  PHYTXSTART_NCYCLE			GENMASK(22, 16)
 #define  MAC_CLK_80M				BIT(28)
 
@@ -120,6 +143,7 @@
 #define ADR_GLBLE_SET				0xca00031c
 #define  OP_MODE				GENMASK(1, 0)
 #define   OPMODE_STA				0
+#define   OPMODE_AP				1
 #define  PB_OFFSET				GENMASK(15, 8)
 #define  SNIFFER_MODE				BIT(16)
 #define  QOS_EN					BIT(4)
@@ -131,6 +155,16 @@
 #define ADR_REASON_TRAP1			0xca000324
 
 /* Packet buffer and mailbox */
+#define ADR_CH0_TRIG_1				0xcd000010
+#define ADR_MCU_STATUS				0xcd000018
+#define  CH0_FULL				BIT(0)
+#define ADR_WR_ALC				0xcd010000
+#define  PBUF_SIZE				GENMASK(15, 0)
+#define  PBUF_TYPE				GENMASK(18, 16)
+#define   PBUF_TX				1
+#define   PBUF_RX				2
+/* A buffer address carries its packet id in bits 27..16. */
+#define  PBUF_ADDR_ID				GENMASK(27, 16)
 #define ADR_MBOX_HALT_CFG			0xcd00002c
 #define  MB_ERR_AUTO_HALT_EN			BIT(20)
 #define ADR_MB_DBG_CFG1				0xcd000030

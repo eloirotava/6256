@@ -52,6 +52,18 @@
 /* Largest frame the chip hands back, including descriptor and padding. */
 #define SSV_RX_BUF_SIZE		4096
 
+/* Channel width, and which side the secondary channel is on. */
+enum ssv_bandwidth {
+	SSV_BW_20,
+	SSV_BW_40_ABOVE,
+	SSV_BW_40_BELOW,
+};
+
+/* Hardware transmit queues: one per access category, management, DTIM. */
+#define SSV_HW_TXQ_NUM		6
+#define SSV_HW_TXQ_MGMT		4
+#define SSV_HW_TXQ_DTIM		5
+
 /* Packet engines, as used by the receive flow and trap registers. */
 #define M_ENG_CPU		0x00
 #define M_ENG_HWHCI		0x01
@@ -253,6 +265,7 @@ struct ssv_dev {
 	char chip_id[20];
 	u8 mac[ETH_ALEN];
 	int channel;
+	enum ssv_bandwidth bw;
 	bool short_preamble;
 
 	struct ieee80211_sta __rcu *sta[SSV_NUM_STA];
@@ -261,7 +274,7 @@ struct ssv_dev {
 	struct mutex agg_mutex;	/* serialises aggregate building and sending */
 
 	/* transmit: one queue per hardware queue, drained by a thread */
-	struct sk_buff_head txq[5];
+	struct sk_buff_head txq[SSV_HW_TXQ_NUM];
 	wait_queue_head_t tx_wait;
 	struct task_struct *tx_thread;
 	u8 *tx_buf;		/* DMA-safe, used only by the TX thread */
@@ -272,6 +285,15 @@ struct ssv_dev {
 	u8 status_next;
 	unsigned long status_at[SSV_STATUS_SLOTS];
 	unsigned long status_sweep;
+
+	/* access point mode */
+	struct work_struct beacon_work;
+	struct delayed_work dtim_work;
+	u32 bcn_buf[2];
+	size_t bcn_len[2];
+	u8 *bcn_last;
+	size_t bcn_last_len;
+	bool dtim_bit;
 };
 
 /* sdio.c */
@@ -292,6 +314,14 @@ int ssv_write_table(struct ssv_dev *sd, const struct ssv_reg *t, size_t n);
 int ssv_hw_start(struct ssv_dev *sd);
 void ssv_hw_probe(struct ssv_dev *sd);
 void ssv_set_bssid(struct ssv_dev *sd, const u8 *bssid);
+void ssv_set_ap_mode(struct ssv_dev *sd, bool ap);
+u32 ssv_pbuf_alloc(struct ssv_dev *sd, size_t size, u32 type);
+void ssv_pbuf_free(struct ssv_dev *sd, u32 addr);
+void ssv_beacon_timing(struct ssv_dev *sd, u16 interval, u8 dtim_period);
+int ssv_beacon_enable(struct ssv_dev *sd, bool enable);
+int ssv_beacon_set(struct ssv_dev *sd, const u8 *buf, size_t len,
+		   u16 dtim_offset);
+void ssv_beacon_release(struct ssv_dev *sd);
 
 /* mac.c */
 struct ssv_dev *ssv_mac_alloc(struct device *dev);
@@ -317,6 +347,13 @@ void ssv_tx_deinit(struct ssv_dev *sd);
 /* rx.c */
 void ssv_rx_irq(struct ssv_dev *sd);
 
+/* ap.c */
+bool ssv_is_ap(struct ssv_dev *sd);
+void ssv_ap_init(struct ssv_dev *sd);
+void ssv_ap_update_beacon(struct ssv_dev *sd);
+void ssv_ap_group_queued(struct ssv_dev *sd);
+void ssv_ap_stop(struct ssv_dev *sd);
+
 /* ampdu.c */
 void ssv_agg_init(struct ssv_sta *ss);
 void ssv_agg_flush(struct ssv_dev *sd, struct ssv_sta *ss, u8 tid);
@@ -332,8 +369,8 @@ int ssv_agg_action(struct ssv_dev *sd, struct ieee80211_vif *vif,
 /* phy.c */
 int ssv_phy_init(struct ssv_dev *sd);
 int ssv_phy_enable(struct ssv_dev *sd, bool enable);
-int ssv_set_channel(struct ssv_dev *sd, int channel);
-int ssv_set_bandwidth(struct ssv_dev *sd, bool ht40, bool sec_above);
+int ssv_set_channel(struct ssv_dev *sd, int channel, enum ssv_bandwidth bw);
+int ssv_set_bandwidth(struct ssv_dev *sd, enum ssv_bandwidth bw);
 
 /* Read-modify-write of one register field, given its mask. */
 static inline int ssv_field_write(struct ssv_dev *sd, u32 addr, u32 mask,

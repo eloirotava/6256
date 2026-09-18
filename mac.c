@@ -69,13 +69,18 @@ static int ssv_add_interface(struct ieee80211_hw *hw, struct ieee80211_vif *vif)
 {
 	struct ssv_dev *sd = hw->priv;
 
-	if (vif->type != NL80211_IFTYPE_STATION)
+	if (vif->type != NL80211_IFTYPE_STATION &&
+	    vif->type != NL80211_IFTYPE_AP)
 		return -EOPNOTSUPP;
 	if (sd->vif)
 		return -EBUSY;
 
 	mutex_lock(&sd->mutex);
 	sd->vif = vif;
+	if (vif->type == NL80211_IFTYPE_AP) {
+		ssv_set_ap_mode(sd, true);
+		ssv_set_bssid(sd, vif->addr);
+	}
 	mutex_unlock(&sd->mutex);
 	return 0;
 }
@@ -85,26 +90,43 @@ static void ssv_remove_interface(struct ieee80211_hw *hw,
 {
 	struct ssv_dev *sd = hw->priv;
 
+	if (sd->vif != vif)
+		return;
+	cancel_delayed_work_sync(&sd->dtim_work);
+	cancel_work_sync(&sd->beacon_work);
 	mutex_lock(&sd->mutex);
-	if (sd->vif == vif)
-		sd->vif = NULL;
+	if (vif->type == NL80211_IFTYPE_AP)
+		ssv_ap_stop(sd);
+	sd->vif = NULL;
 	mutex_unlock(&sd->mutex);
+}
+
+static enum ssv_bandwidth ssv_chandef_bw(const struct cfg80211_chan_def *def)
+{
+	if (def->width != NL80211_CHAN_WIDTH_40)
+		return SSV_BW_20;
+	return def->center_freq1 > def->chan->center_freq ? SSV_BW_40_ABOVE :
+							    SSV_BW_40_BELOW;
 }
 
 static int ssv_config(struct ieee80211_hw *hw, int radio_idx, u32 changed)
 {
 	struct ssv_dev *sd = hw->priv;
 	struct ieee80211_channel *chan = hw->conf.chandef.chan;
+	enum ssv_bandwidth bw;
 	int ret = 0;
 
 	if (!(changed & IEEE80211_CONF_CHANGE_CHANNEL) || !chan)
 		return 0;
+	bw = ssv_chandef_bw(&hw->conf.chandef);
 
 	mutex_lock(&sd->mutex);
-	if (chan->hw_value != sd->channel) {
-		ret = ssv_set_channel(sd, chan->hw_value);
-		if (!ret)
+	if (chan->hw_value != sd->channel || bw != sd->bw) {
+		ret = ssv_set_channel(sd, chan->hw_value, bw);
+		if (!ret) {
 			sd->channel = chan->hw_value;
+			sd->bw = bw;
+		}
 	}
 	mutex_unlock(&sd->mutex);
 	return ret;
@@ -129,7 +151,24 @@ static void ssv_bss_info_changed(struct ieee80211_hw *hw,
 		sd->short_preamble = info->use_short_preamble;
 	if (changed & BSS_CHANGED_BSSID)
 		ssv_set_bssid(sd, info->bssid);
+	if (vif->type == NL80211_IFTYPE_AP) {
+		if (changed & (BSS_CHANGED_BEACON | BSS_CHANGED_BEACON_INT |
+			       BSS_CHANGED_BEACON_ENABLED))
+			ssv_ap_update_beacon(sd);
+		if (changed & BSS_CHANGED_BEACON_ENABLED)
+			ssv_beacon_enable(sd, info->enable_beacon);
+	}
 	mutex_unlock(&sd->mutex);
+}
+
+/* A station's power save buffer changed: the beacon TIM follows. */
+static int ssv_set_tim(struct ieee80211_hw *hw, struct ieee80211_sta *sta,
+		       bool set)
+{
+	struct ssv_dev *sd = hw->priv;
+
+	schedule_work(&sd->beacon_work);
+	return 0;
 }
 
 /* Channel access parameters of one access category. */
@@ -254,6 +293,7 @@ static const struct ieee80211_ops ssv_ops = {
 	.configure_filter = ssv_configure_filter,
 	.bss_info_changed = ssv_bss_info_changed,
 	.sta_state = ssv_sta_state,
+	.set_tim = ssv_set_tim,
 	.conf_tx = ssv_conf_tx,
 	.flush = ssv_flush,
 	.ampdu_action = ssv_ampdu_action,
@@ -274,6 +314,7 @@ struct ssv_dev *ssv_mac_alloc(struct device *dev)
 	mutex_init(&sd->mutex);
 	mutex_init(&sd->agg_mutex);
 	spin_lock_init(&sd->sta_lock);
+	ssv_ap_init(sd);
 	SET_IEEE80211_DEV(hw, dev);
 	return sd;
 }
@@ -295,13 +336,15 @@ int ssv_mac_register(struct ssv_dev *sd)
 	ieee80211_hw_set(hw, AMPDU_AGGREGATION);
 	ieee80211_hw_set(hw, SUPPORTS_REORDERING_BUFFER);
 	hw->max_rx_aggregation_subframes = 32;
+	ieee80211_hw_set(hw, HOST_BROADCAST_PS_BUFFERING);
 	hw->queues = IEEE80211_NUM_ACS;
 	hw->extra_tx_headroom = SSV_TX_DESC_LEN;
 	hw->max_rates = SSV_TX_MAX_RATES;
 	hw->max_rate_tries = 15;
 	hw->sta_data_size = sizeof(struct ssv_sta);
 	hw->vif_data_size = 0;
-	hw->wiphy->interface_modes = BIT(NL80211_IFTYPE_STATION);
+	hw->wiphy->interface_modes = BIT(NL80211_IFTYPE_STATION) |
+				     BIT(NL80211_IFTYPE_AP);
 	hw->wiphy->flags &= ~WIPHY_FLAG_PS_ON_BY_DEFAULT;
 
 	sd->band.band = NL80211_BAND_2GHZ;
@@ -316,7 +359,7 @@ int ssv_mac_register(struct ssv_dev *sd)
 	ht->ampdu_factor = IEEE80211_HT_MAX_AMPDU_32K;
 	ht->ampdu_density = IEEE80211_HT_MPDU_DENSITY_8;
 	ht->mcs.rx_mask[0] = 0xff;
-	ht->mcs.rx_highest = cpu_to_le16(72);
+	ht->mcs.rx_highest = cpu_to_le16(150);
 	ht->mcs.tx_params = IEEE80211_HT_MCS_TX_DEFINED;
 	hw->wiphy->bands[NL80211_BAND_2GHZ] = &sd->band;
 

@@ -281,7 +281,7 @@ static size_t agg_build(struct ssv_dev *sd, struct ssv_sta *ss,
 	struct sk_buff *skb, *first = NULL;
 	size_t len = SSV_TX_DESC_LEN, max_len, on_air;
 	int n = 0, limit, hdrlen, i;
-	u8 id, first_code = 0, *p;
+	u8 id, *p;
 	u16 start;
 
 	if (agg_inflight_count(a) >= AGG_MAX_INFLIGHT)
@@ -327,11 +327,6 @@ static size_t agg_build(struct ssv_dev *sd, struct ssv_sta *ss,
 			len += sz;
 			n++;
 
-			if (!n) {
-				info = IEEE80211_SKB_CB(skb);
-				first_code = ssv_rate_code(sd,
-							   &info->control.rates[0]);
-			}
 			agg_cb(skb)->sent_at = jiffies;
 			agg_cb(skb)->id = id;
 			__skb_queue_tail(&a->inflight, skb);
@@ -370,9 +365,12 @@ static size_t agg_build(struct ssv_dev *sd, struct ssv_sta *ss,
 			    info->control.rates[i + 1].idx < 0;
 
 		if (r->idx < 0) {
+			/* no rate control yet: the slowest HT rate */
 			if (i == 0)
-				ssv_fill_rate(&d->rate[0], first_code, 2,
-					      on_air, true, true, true);
+				ssv_fill_rate(&d->rate[0],
+					      FIELD_PREP(RATE_PHY_MODE,
+							 RATE_PHY_HT),
+					      2, on_air, true, true, true);
 			break;
 		}
 		ssv_fill_rate(&d->rate[i], ssv_rate_code(sd, r),

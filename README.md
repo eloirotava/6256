@@ -23,8 +23,13 @@ fabricante (`ssv6x5x`), que está no branch `main` deste repositório.
 - registro no mac80211 como cliente (modo *managed*), 2,4 GHz, HT20;
 - criptografia em software (o motor do chip fica fora do caminho).
 
-O que falta: HT40, modo AP, banda de 5 GHz, criptografia por hardware e
-economia de energia.
+- HT40, com o canal secundário acima ou abaixo;
+- modo ponto de acesso: o MAC envia o beacon a partir de um buffer na
+  memória do chip, e os quadros de grupo para estações dormindo esperam
+  o beacon de DTIM na fila 5.
+
+O que falta: banda de 5 GHz, criptografia por hardware e economia de
+energia.
 
 Agregação nos dois sentidos: na recepção o MAC responde aos Block Ack
 sozinho e entrega os subquadros um a um; no envio o host monta o

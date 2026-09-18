@@ -399,10 +399,21 @@ int ssv_phy_enable(struct ssv_dev *sd, bool enable)
 			       RG_PHY_MD_EN, enable);
 }
 
-/* Retune the synthesiser; the receivers are reset afterwards. */
-int ssv_set_channel(struct ssv_dev *sd, int channel)
+/*
+ * Retune the synthesiser to @channel, with the secondary channel where
+ * @bw says.  The receivers are held in reset while the radio moves.
+ */
+int ssv_set_channel(struct ssv_dev *sd, int channel, enum ssv_bandwidth bw)
 {
 	u32 cur;
+
+	ssv_field_write(sd, ADR_WIFI_11B_RX_REG_255, RG_SOFT_RST_N_11B_RX, 0);
+	ssv_field_write(sd, ADR_WIFI_11GN_RX_REG_255, RG_SOFT_RST_N_11GN_RX, 0);
+	ssv_set_bandwidth(sd, bw);
+
+	/* 2.4 GHz timing: short interframe space and signal extension */
+	ssv_field_write(sd, ADR_MTX_TIME_IFS, MTX_SIFS, 10);
+	ssv_field_write(sd, ADR_MTX_TIME_FINETUNE, MTX_SIGEXT, 6);
 
 	ssv_field_write(sd, ADR_WIFI_PHY_COMMON_SYS_REG, RG_RF_5G_BAND, 0);
 	ssv_field_write(sd, ADR_MODE_REGISTER, RG_MODE_MANUAL, 1);
@@ -424,12 +435,11 @@ int ssv_set_channel(struct ssv_dev *sd, int channel)
 			       RG_SOFT_RST_N_11B_RX, 1);
 }
 
-/*
- * @sec_above says where the secondary channel sits for HT40; it is
- * ignored for HT20.
- */
-int ssv_set_bandwidth(struct ssv_dev *sd, bool ht40, bool sec_above)
+/* Where the secondary channel sits, if there is one. */
+int ssv_set_bandwidth(struct ssv_dev *sd, enum ssv_bandwidth bw)
 {
+	bool ht40 = bw != SSV_BW_20;
+	bool sec_above = bw == SSV_BW_40_ABOVE;
 	u32 sys = 0, add_on = 0;
 
 	if (ht40) {

@@ -13,10 +13,6 @@
 
 #include "ssv6256.h"
 
-/* Hardware queues: BK, BE, VI, VO and one for management frames. */
-#define HW_TXQ_NUM		5
-#define HW_TXQ_MGMT		4
-
 static const u8 ac_to_hwq[IEEE80211_NUM_ACS] = { 3, 2, 1, 0 };
 
 int ssv_ac_to_hwq(u16 ac)
@@ -401,8 +397,8 @@ static struct sk_buff *ssv_tx_next(struct ssv_dev *sd)
 	struct sk_buff *skb;
 	int q;
 
-	skb = skb_dequeue(&sd->txq[HW_TXQ_MGMT]);
-	for (q = 0; !skb && q < HW_TXQ_MGMT; q++)
+	skb = skb_dequeue(&sd->txq[SSV_HW_TXQ_MGMT]);
+	for (q = 0; !skb && q < SSV_HW_TXQ_MGMT; q++)
 		skb = skb_dequeue(&sd->txq[q]);
 	return skb;
 }
@@ -412,7 +408,7 @@ bool ssv_tx_queued(struct ssv_dev *sd)
 {
 	int q, w, t;
 
-	for (q = 0; q < HW_TXQ_NUM; q++)
+	for (q = 0; q < SSV_HW_TXQ_NUM; q++)
 		if (!skb_queue_empty(&sd->txq[q]))
 			return true;
 	for (w = 0; w < SSV_NUM_STA; w++) {
@@ -438,7 +434,7 @@ static bool ssv_tx_pending(struct ssv_dev *sd)
 {
 	int q;
 
-	for (q = 0; q < HW_TXQ_NUM; q++)
+	for (q = 0; q < SSV_HW_TXQ_NUM; q++)
 		if (!skb_queue_empty(&sd->txq[q]))
 			return true;
 	return false;
@@ -503,15 +499,21 @@ void ssv_tx(struct ieee80211_hw *hw, struct ieee80211_tx_control *control,
 	    struct sk_buff *skb)
 {
 	struct ssv_dev *sd = hw->priv;
+	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
 	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *)skb->data;
 	struct ieee80211_sta *sta = control ? control->sta : NULL;
 	int hwq;
 
-	if (ieee80211_is_mgmt(hdr->frame_control) ||
-	    ieee80211_is_nullfunc(hdr->frame_control))
-		hwq = HW_TXQ_MGMT;
-	else
+	/* group frames for dozing stations wait for the DTIM beacon */
+	if (info->flags & IEEE80211_TX_CTL_SEND_AFTER_DTIM) {
+		hwq = SSV_HW_TXQ_DTIM;
+		ssv_ap_group_queued(sd);
+	} else if (ieee80211_is_mgmt(hdr->frame_control) ||
+		   ieee80211_is_nullfunc(hdr->frame_control)) {
+		hwq = SSV_HW_TXQ_MGMT;
+	} else {
 		hwq = ac_to_hwq[skb_get_queue_mapping(skb) & 3];
+	}
 
 	if (sd->started && sta && ssv_agg_tx(sd, sta, skb)) {
 		wake_up(&sd->tx_wait);
@@ -532,7 +534,7 @@ void ssv_tx_flush(struct ssv_dev *sd)
 
 	ssv_agg_flush_all(sd);
 
-	for (i = 0; i < HW_TXQ_NUM; i++)
+	for (i = 0; i < SSV_HW_TXQ_NUM; i++)
 		while ((skb = skb_dequeue(&sd->txq[i])))
 			ieee80211_free_txskb(sd->hw, skb);
 	for (i = 0; i < SSV_STATUS_SLOTS; i++) {
@@ -546,7 +548,7 @@ int ssv_tx_init(struct ssv_dev *sd)
 {
 	int i;
 
-	for (i = 0; i < HW_TXQ_NUM; i++)
+	for (i = 0; i < SSV_HW_TXQ_NUM; i++)
 		skb_queue_head_init(&sd->txq[i]);
 	init_waitqueue_head(&sd->tx_wait);
 	spin_lock_init(&sd->status_lock);

@@ -271,6 +271,137 @@ void ssv_set_bssid(struct ssv_dev *sd, const u8 *bssid)
 	ssv_reg_write(sd, ADR_BSSID_1, get_unaligned_le16(bssid + 4));
 }
 
+/*
+ * Packet memory: the chip hands out a buffer of @size bytes and takes
+ * it back through the trash can engine.
+ */
+u32 ssv_pbuf_alloc(struct ssv_dev *sd, size_t size, u32 type)
+{
+	u32 addr = 0;
+	int i;
+
+	size = round_up(size, 4);
+	for (i = 0; i < 10; i++) {
+		ssv_reg_write(sd, ADR_WR_ALC, FIELD_PREP(PBUF_SIZE, size) |
+			      FIELD_PREP(PBUF_TYPE, type));
+		if (ssv_reg_read(sd, ADR_WR_ALC, &addr) || addr)
+			break;
+		usleep_range(1000, 2000);
+	}
+	if (!addr)
+		dev_err(sd->dev, "no packet buffer for %zu bytes\n", size);
+	return addr;
+}
+
+void ssv_pbuf_free(struct ssv_dev *sd, u32 addr)
+{
+	u32 val;
+	int i;
+
+	/* the mailbox to the packet engine has to have room */
+	for (i = 0; i < 1000; i++) {
+		if (ssv_reg_read(sd, ADR_MCU_STATUS, &val) || !(val & CH0_FULL))
+			break;
+	}
+	ssv_reg_write(sd, ADR_CH0_TRIG_1,
+		      (M_ENG_TRASH_CAN << 7) | (addr >> 16));
+}
+
+/* In access point mode the MAC sends the beacon and holds group frames. */
+void ssv_set_ap_mode(struct ssv_dev *sd, bool ap)
+{
+	ssv_field_write(sd, ADR_GLBLE_SET, OP_MODE,
+			ap ? OPMODE_AP : OPMODE_STA);
+	ssv_reg_set_bits(sd, ADR_MTX_BCN_EN_MISC,
+			 ap ? TXQ5_DTIM_BEACON_BURST_MNG : 0,
+			 TXQ5_DTIM_BEACON_BURST_MNG);
+}
+
+void ssv_beacon_timing(struct ssv_dev *sd, u16 interval, u8 dtim_period)
+{
+	ssv_field_write(sd, ADR_MTX_BCN_PRD, MTX_BCN_PERIOD, interval ?: 100);
+	ssv_field_write(sd, ADR_MTX_BCN_DTIM_CONFG, MTX_DTIM_NUM,
+			max_t(u8, dtim_period, 1) - 1);
+	/* the MAC fills in the time stamp, sequence number and DTIM count */
+	ssv_reg_set_bits(sd, ADR_MTX_BCN_EN_MISC,
+			 MTX_TIME_STAMP_AUTO_FILL | MTX_BCN_AUTO_SEQ_NO |
+			 MTX_DTIM_CNT_AUTO_FILL,
+			 MTX_TIME_STAMP_AUTO_FILL | MTX_BCN_AUTO_SEQ_NO |
+			 MTX_DTIM_CNT_AUTO_FILL);
+}
+
+int ssv_beacon_enable(struct ssv_dev *sd, bool enable)
+{
+	return ssv_field_write(sd, ADR_MTX_BCN_EN_MISC, MTX_BCN_TIMER_EN,
+			       enable);
+}
+
+/*
+ * Write a beacon into the slot the MAC is not sending from, and point
+ * the MAC at it.  @dtim_offset says where the DTIM count sits, so that
+ * the MAC can fill it in.
+ */
+int ssv_beacon_set(struct ssv_dev *sd, const u8 *buf, size_t len,
+		   u16 dtim_offset)
+{
+	static const u32 pkt_reg[] = {
+		ADR_MTX_BCN_PKT_SET0, ADR_MTX_BCN_PKT_SET1,
+	};
+	static const u32 dtim_reg[] = {
+		ADR_MTX_BCN_DTIM_SET0, ADR_MTX_BCN_DTIM_SET1,
+	};
+	u32 val;
+	int slot, i;
+
+	/* hold the slot the MAC reports while it is being rewritten */
+	ssv_field_write(sd, ADR_MTX_BCN_MISC, MTX_BCN_PKTID_CH_LOCK, 1);
+	if (ssv_reg_read(sd, ADR_MTX_BCN_MISC, &val))
+		return -EIO;
+	slot = FIELD_GET(MTX_BCN_CFG_VLD, val) == 1 ? 1 : 0;
+
+	if (sd->bcn_buf[slot] && sd->bcn_len[slot] < len) {
+		ssv_pbuf_free(sd, sd->bcn_buf[slot]);
+		sd->bcn_buf[slot] = 0;
+	}
+	if (!sd->bcn_buf[slot]) {
+		sd->bcn_buf[slot] = ssv_pbuf_alloc(sd, len, PBUF_TX);
+		sd->bcn_len[slot] = len;
+	}
+	if (!sd->bcn_buf[slot]) {
+		ssv_field_write(sd, ADR_MTX_BCN_MISC, MTX_BCN_PKTID_CH_LOCK, 0);
+		return -ENOMEM;
+	}
+
+	for (i = 0; i < len; i += 4)
+		ssv_reg_write(sd, sd->bcn_buf[slot] + i,
+			      get_unaligned_le32(buf + i));
+	ssv_field_write(sd, pkt_reg[slot], MTX_BCN_PKT_ID,
+			FIELD_GET(PBUF_ADDR_ID, sd->bcn_buf[slot]));
+	ssv_field_write(sd, dtim_reg[slot], MTX_DTIM_OFST, dtim_offset);
+	return ssv_field_write(sd, ADR_MTX_BCN_MISC, MTX_BCN_PKTID_CH_LOCK, 0);
+}
+
+/* Stop the beacon and give its buffers back. */
+void ssv_beacon_release(struct ssv_dev *sd)
+{
+	u32 val;
+	int i;
+
+	for (i = 0; i < 10; i++) {
+		ssv_beacon_enable(sd, false);
+		if (ssv_reg_read(sd, ADR_MTX_BCN_MISC, &val) ||
+		    !(val & MTX_AUTO_BCN_ONGOING))
+			break;
+		usleep_range(1000, 2000);
+	}
+	for (i = 0; i < ARRAY_SIZE(sd->bcn_buf); i++) {
+		if (sd->bcn_buf[i])
+			ssv_pbuf_free(sd, sd->bcn_buf[i]);
+		sd->bcn_buf[i] = 0;
+		sd->bcn_len[i] = 0;
+	}
+}
+
 static int ssv_mac_init(struct ssv_dev *sd)
 {
 	static const u8 zero_bssid[ETH_ALEN] = {};
@@ -366,8 +497,7 @@ int ssv_hw_start(struct ssv_dev *sd)
 	ssv_phy_enable(sd, true);
 	/* the bus was slowed down for the firmware upload */
 	ssv_set_bus_clock(sd, SSV_BUS_CLOCK_MAX);
-	ssv_set_bandwidth(sd, false, false);
-	return ssv_set_channel(sd, sd->channel);
+	return ssv_set_channel(sd, sd->channel, sd->bw);
 }
 
 /* Read what the driver needs before registering with mac80211. */
