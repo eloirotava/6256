@@ -183,6 +183,7 @@ static int ssv_status_put(struct ssv_dev *sd, struct sk_buff *skb)
 
 		if (!sd->status[n]) {
 			sd->status[n] = skb;
+			sd->status_at[n] = jiffies;
 			sd->status_next = (n + 1) % SSV_STATUS_SLOTS;
 			slot = n;
 			break;
@@ -355,6 +356,7 @@ static void ssv_send_one(struct ssv_dev *sd, struct sk_buff *skb)
 		memset(sd->tx_buf + skb->len, 0, aligned - skb->len);
 		ret = ssv_write_data(sd, sd->tx_buf, skb->len);
 	}
+
 	if (!ret && slot < SSV_STATUS_SLOTS)
 		return;		/* the report will complete it */
 
@@ -385,6 +387,37 @@ static bool ssv_tx_pending(struct ssv_dev *sd)
 	return false;
 }
 
+/*
+ * A report can go missing, for instance when the chip gives up on a
+ * frame it never managed to send.  Hand those frames back to mac80211
+ * rather than sit on them: otherwise the slots run out and, worse, the
+ * buffers are never freed.
+ */
+static void ssv_tx_expire(struct ssv_dev *sd)
+{
+	struct sk_buff *old[SSV_STATUS_SLOTS];
+	unsigned long flags;
+	int i, n = 0;
+
+	if (time_before(jiffies, sd->status_sweep))
+		return;
+	sd->status_sweep = jiffies + SSV_STATUS_TIMEOUT;
+
+	spin_lock_irqsave(&sd->status_lock, flags);
+	for (i = 0; i < SSV_STATUS_SLOTS; i++) {
+		if (!sd->status[i])
+			continue;
+		if (time_before(sd->status_at[i], jiffies - SSV_STATUS_TIMEOUT)) {
+			old[n++] = sd->status[i];
+			sd->status[i] = NULL;
+		}
+	}
+	spin_unlock_irqrestore(&sd->status_lock, flags);
+
+	for (i = 0; i < n; i++)
+		ssv_tx_done(sd, old[i], false, 1);
+}
+
 static int ssv_tx_thread(void *data)
 {
 	struct ssv_dev *sd = data;
@@ -392,10 +425,12 @@ static int ssv_tx_thread(void *data)
 	while (!kthread_should_stop()) {
 		struct sk_buff *skb = ssv_tx_next(sd);
 
+		ssv_tx_expire(sd);
 		if (!skb) {
-			wait_event_interruptible(sd->tx_wait,
-						 ssv_tx_pending(sd) ||
-						 kthread_should_stop());
+			wait_event_interruptible_timeout(sd->tx_wait,
+							 ssv_tx_pending(sd) ||
+							 kthread_should_stop(),
+							 SSV_STATUS_TIMEOUT);
 			continue;
 		}
 		ssv_send_one(sd, skb);

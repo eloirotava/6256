@@ -38,6 +38,7 @@
 #define SDIO_BLOCK_SIZE		128
 #define SDIO_OUTPUT_TIMING	0
 #define SDIO_CLOCK_INIT		25000000U
+#define SSV_BUS_CLOCK_MAX	50000000U
 #define SDIO_TX_ALLOC_SHIFT	0x07
 #define SDIO_TX_ALLOC_ENABLE	0x10
 
@@ -195,6 +196,8 @@ struct ssv_host_hdr {
 #define SSV_NUM_STA		8
 /* Frames that may be waiting for the chip's transmit report. */
 #define SSV_STATUS_SLOTS	32
+/* How long to wait for a report before giving up on a frame. */
+#define SSV_STATUS_TIMEOUT	(HZ / 2)
 
 struct ssv_sta {
 	int wsid;
@@ -233,6 +236,8 @@ struct ssv_dev {
 	spinlock_t status_lock;	/* protects status[] and status_next */
 	struct sk_buff *status[SSV_STATUS_SLOTS];
 	u8 status_next;
+	unsigned long status_at[SSV_STATUS_SLOTS];
+	unsigned long status_sweep;
 };
 
 /* sdio.c */
@@ -242,6 +247,7 @@ int ssv_reg_set_bits(struct ssv_dev *sd, u32 addr, u32 set, u32 mask);
 int ssv_write_data(struct ssv_dev *sd, const u8 *buf, size_t len);
 int ssv_load_firmware(struct ssv_dev *sd);
 int ssv_irq_mask(struct ssv_dev *sd, u8 mask);
+void ssv_set_bus_clock(struct ssv_dev *sd, u32 hz);
 int ssv_irq_enable(struct ssv_dev *sd);
 void ssv_irq_disable(struct ssv_dev *sd);
 

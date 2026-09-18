@@ -252,6 +252,8 @@ static int ssv_mac_init(struct ssv_dev *sd)
 			 SEC_LUT_SEL, OP_MODE | CCMP_H_SEL | SEC_LUT_SEL);
 	ssv_field_write(sd, ADR_MTX_RATERPT, MTX_RATERPT_HWID, M_ENG_HWHCI);
 	ssv_reg_write(sd, ADR_AMPDU_SCOREBOAD_SIZE, MAX_RX_AGGR_SIZE);
+	/* the MAC answers Block Ack requests itself, on any TID */
+	ssv_field_write(sd, ADR_BA_TID, BA_TID, 0xf);
 	return 0;
 }
 
@@ -277,6 +279,8 @@ int ssv_hw_start(struct ssv_dev *sd)
 	dev_info(sd->dev, "firmware running\n");
 
 	ssv_phy_enable(sd, true);
+	/* the bus was slowed down for the firmware upload */
+	ssv_set_bus_clock(sd, SSV_BUS_CLOCK_MAX);
 	ssv_set_bandwidth(sd, false, false);
 	return ssv_set_channel(sd, sd->channel);
 }

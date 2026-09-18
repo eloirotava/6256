@@ -175,11 +175,21 @@ static int ssv_sta_state(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 	return ret;
 }
 
-/* Aggregation is not implemented yet; mac80211 needs the callback. */
+/*
+ * Receiving aggregates needs nothing from the driver: the MAC answers
+ * the Block Ack requests and hands the subframes over one by one, and
+ * mac80211 puts them back in order.  Sending them is not implemented.
+ */
 static int ssv_ampdu_action(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 			    struct ieee80211_ampdu_params *params)
 {
-	return -EOPNOTSUPP;
+	switch (params->action) {
+	case IEEE80211_AMPDU_RX_START:
+	case IEEE80211_AMPDU_RX_STOP:
+		return 0;
+	default:
+		return -EOPNOTSUPP;
+	}
 }
 
 static const struct ieee80211_ops ssv_ops = {
@@ -231,6 +241,8 @@ int ssv_mac_register(struct ssv_dev *sd)
 	ieee80211_hw_set(hw, SIGNAL_DBM);
 	ieee80211_hw_set(hw, MFP_CAPABLE);
 	ieee80211_hw_set(hw, REPORTS_TX_ACK_STATUS);
+	ieee80211_hw_set(hw, AMPDU_AGGREGATION);
+	hw->max_rx_aggregation_subframes = 32;
 	hw->queues = IEEE80211_NUM_ACS;
 	hw->extra_tx_headroom = SSV_TX_DESC_LEN;
 	hw->max_rates = SSV_TX_MAX_RATES;

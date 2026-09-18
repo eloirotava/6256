@@ -65,6 +65,8 @@
 #define ADR_RX_TIME_STAMP_CFG			0xc60000ec
 #define  MRX_STP_OFST				GENMASK(15, 8)
 #define ADR_BA_CTRL				0xc6000100
+#define ADR_BA_TID				0xc600010c
+#define  BA_TID					GENMASK(3, 0)
 #define ADR_MRX_WATCH_DOG			0xc600011c
 #define ADR_TRAP_HW_ID				0xc6000134
 #define ADR_AMPDU_SCOREBOAD_SIZE		0xc600019c

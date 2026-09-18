@@ -140,7 +140,7 @@ void ssv_irq_disable(struct ssv_dev *sd)
 	sdio_release_host(sd->func);
 }
 
-static void ssv_set_bus_clock(struct ssv_dev *sd, u32 hz)
+void ssv_set_bus_clock(struct ssv_dev *sd, u32 hz)
 {
 	struct mmc_host *host = sd->func->card->host;
 

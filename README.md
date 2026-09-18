@@ -26,9 +26,13 @@ fabricante (`ssv6x5x`), que está no branch `main` deste repositório.
 O que falta: agregação (AMPDU), HT40, modo AP, banda de 5 GHz,
 criptografia por hardware e economia de energia.
 
-Medido num RK322x ligado a um AP a poucos metros (MCS7 na recepção,
-MCS5 no envio): **5,9 Mbit/s de subida e 5,0 Mbit/s de descida**. Sem
-agregação, cada quadro custa uma transação SDIO, e é isso que limita.
+Recebe agregados (A-MPDU): o MAC responde aos Block Ack sozinho e
+entrega os subquadros um a um; enviar agregados ainda não está feito.
+
+Medido num RK322x ligado a um AP a poucos metros, com MCS7 nos dois
+sentidos: **5 a 9 Mbit/s**, variando com a ocupação do canal. Sem
+agregação no envio, cada quadro custa uma transação SDIO (cerca de
+400 µs), e é isso que limita.
 
 As calibrações levam cerca de 90 ms e são refeitas a cada carga do
 módulo; o resultado aparece no `dmesg` em nível de depuração.
