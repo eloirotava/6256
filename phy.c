@@ -491,10 +491,6 @@ static int ssv_init_pll(struct ssv_dev *sd)
  */
 static void ssv_single_band_patch(struct ssv_dev *sd)
 {
-	u32 id;
-
-	sd->dual_band = !ssv_reg_read(sd, ADR_CHIP_ID_2, &id) &&
-			id == DUAL_BAND_ID;
 	if (sd->dual_band)
 		return;
 
@@ -533,30 +529,35 @@ int ssv_phy_enable(struct ssv_dev *sd, bool enable)
  */
 int ssv_set_channel(struct ssv_dev *sd, int channel, enum ssv_bandwidth bw)
 {
+	bool is_5g = channel >= 36;
+	u32 table = is_5g ? ADR_SX_5GB_CH_TABLE : ADR_SX_CH_TABLE;
+	u32 ch_mask = is_5g ? RG_SX5GB_CHANNEL : RG_SX_CHANNEL;
+	u32 map_en = is_5g ? RG_SX5GB_RFCH_MAP_EN : RG_SX_RFCH_MAP_EN;
+	u32 other = is_5g ? 36 : 1;
 	u32 cur;
 
 	ssv_field_write(sd, ADR_WIFI_11B_RX_REG_255, RG_SOFT_RST_N_11B_RX, 0);
 	ssv_field_write(sd, ADR_WIFI_11GN_RX_REG_255, RG_SOFT_RST_N_11GN_RX, 0);
 	ssv_set_bandwidth(sd, bw);
 
-	/* 2.4 GHz timing: short interframe space and signal extension */
-	ssv_field_write(sd, ADR_MTX_TIME_IFS, MTX_SIFS, 10);
-	ssv_field_write(sd, ADR_MTX_TIME_FINETUNE, MTX_SIGEXT, 6);
+	/* short interframe space and signal extension differ per band */
+	ssv_field_write(sd, ADR_MTX_TIME_IFS, MTX_SIFS, is_5g ? 16 : 10);
+	ssv_field_write(sd, ADR_MTX_TIME_FINETUNE, MTX_SIGEXT, is_5g ? 0 : 6);
 
-	ssv_field_write(sd, ADR_WIFI_PHY_COMMON_SYS_REG, RG_RF_5G_BAND, 0);
+	ssv_field_write(sd, ADR_WIFI_PHY_COMMON_SYS_REG, RG_RF_5G_BAND, is_5g);
 	ssv_field_write(sd, ADR_MODE_REGISTER, RG_MODE_MANUAL, 1);
-	ssv_field_write(sd, ADR_SX_CH_TABLE, RG_SX_RFCH_MAP_EN, 1);
+	ssv_field_write(sd, table, map_en, 1);
 
 	/* a write that does not change the channel does not retune */
-	if (!ssv_field_read(sd, ADR_SX_CH_TABLE, RG_SX_CHANNEL, &cur) &&
-	    cur == channel)
-		ssv_field_write(sd, ADR_SX_CH_TABLE, RG_SX_CHANNEL,
-				channel != 1 ? 1 : 11);
+	if (!ssv_field_read(sd, table, ch_mask, &cur) && cur == channel)
+		ssv_field_write(sd, table, ch_mask,
+				channel != other ? other : other + 4);
 	usleep_range(100, 200);
-	ssv_field_write(sd, ADR_SX_CH_TABLE, RG_SX_CHANNEL, channel);
+	ssv_field_write(sd, table, ch_mask, channel);
 
 	ssv_field_write(sd, ADR_MODE_REGISTER, RG_MODE, MODE_STANDBY);
-	ssv_field_write(sd, ADR_MODE_REGISTER, RG_MODE, MODE_WIFI2P4G_RX);
+	ssv_field_write(sd, ADR_MODE_REGISTER, RG_MODE,
+			is_5g ? MODE_WIFI5G_RX : MODE_WIFI2P4G_RX);
 	ssv_field_write(sd, ADR_MODE_REGISTER, RG_MODE_MANUAL, 0);
 	ssv_field_write(sd, ADR_WIFI_11GN_RX_REG_255, RG_SOFT_RST_N_11GN_RX, 1);
 	return ssv_field_write(sd, ADR_WIFI_11B_RX_REG_255,

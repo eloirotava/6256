@@ -15,6 +15,10 @@
 
 static const u8 ac_to_hwq[IEEE80211_NUM_ACS] = { 3, 2, 1, 0 };
 
+static void ssv_send_one(struct ssv_dev *sd, struct sk_buff *skb);
+static bool ssv_build_desc(struct ssv_dev *sd, struct sk_buff *skb,
+			   struct ieee80211_sta *sta, int hwq);
+
 int ssv_ac_to_hwq(u16 ac)
 {
 	return ac_to_hwq[ac & 3];
@@ -235,9 +239,12 @@ static void ssv_tx_done(struct ssv_dev *sd, struct sk_buff *skb, bool acked,
 			int tries)
 {
 	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
+	struct ieee80211_tx_rate rate = info->control.rates[0];
 
 	skb_pull(skb, SSV_TX_DESC_LEN);
 	ieee80211_tx_info_clear_status(info);
+	/* rate control needs to know which rate was used, and how often */
+	info->status.rates[0] = rate;
 	info->status.rates[0].count = max(tries, 1);
 	if (acked && !(info->flags & IEEE80211_TX_CTL_NO_ACK))
 		info->flags |= IEEE80211_TX_STAT_ACK;
@@ -270,12 +277,13 @@ void ssv_tx_status(struct ssv_dev *sd, struct sk_buff *rpt)
 			break;
 	}
 
-	/* an aggregate is settled by its Block Ack, unless none came */
-	if (ssv_is_agg_run_no(slot)) {
-		if (!acked)
-			ssv_agg_failed(sd, slot);
+	/*
+	 * An aggregate is settled by its Block Ack: the report the chip
+	 * returns for one says nothing useful about whether the peer got
+	 * the frames.
+	 */
+	if (ssv_is_agg_run_no(slot))
 		return;
-	}
 
 	skb = ssv_status_take(sd, slot);
 	if (!skb)
@@ -320,7 +328,7 @@ static bool ssv_build_desc(struct ssv_dev *sd, struct sk_buff *skb,
 
 		if (r->idx < 0) {
 			if (i == 0) {
-				/* no rate control yet: fall back to 1 Mbps */
+				/* no rate control yet: slowest rate of the band */
 				ack = ssv_fill_rate(&d->rate[0],
 						    info->band == NL80211_BAND_2GHZ ?
 						    0 : FIELD_PREP(RATE_PHY_MODE,
@@ -335,7 +343,7 @@ static bool ssv_build_desc(struct ssv_dev *sd, struct sk_buff *skb,
 		code = ssv_rate_code(sd, r, info->band);
 		if (i == 0 && FIELD_GET(RATE_PHY_MODE, code) == RATE_PHY_HT)
 			ht = true;
-		tmp = ssv_fill_rate(&d->rate[i], code, r->count,
+		tmp = ssv_fill_rate(&d->rate[i], code, max_t(u8, r->count, 1),
 				    skb->len - SSV_TX_DESC_LEN + FCS_LEN,
 				    unicast, rts, last);
 		if (i == 0)
@@ -377,6 +385,21 @@ static bool ssv_build_desc(struct ssv_dev *sd, struct sk_buff *skb,
 	return true;
 }
 
+/*
+ * Send one frame the aggregation path decided not to aggregate: a lone
+ * MPDU inside an A-MPDU would be answered with a plain acknowledgement
+ * rather than a Block Ack, which nothing here would be waiting for.
+ */
+void ssv_tx_single(struct ssv_dev *sd, struct sk_buff *skb,
+		   struct ieee80211_sta *sta, int hwq)
+{
+	if (!ssv_build_desc(sd, skb, sta, hwq)) {
+		ieee80211_free_txskb(sd->hw, skb);
+		return;
+	}
+	ssv_send_one(sd, skb);
+}
+
 static void ssv_send_one(struct ssv_dev *sd, struct sk_buff *skb)
 {
 	struct ssv_tx_desc *d = (struct ssv_tx_desc *)skb->data;
@@ -387,8 +410,8 @@ static void ssv_send_one(struct ssv_dev *sd, struct sk_buff *skb)
 	if (aligned > SSV_TX_BUF_SIZE) {
 		ret = -EMSGSIZE;
 	} else {
-		/* bounce: DMA-safe and zero-padded to the block size */
-		memcpy(sd->tx_buf, skb->data, skb->len);
+		/* bounce: DMA-safe, zero-padded, and the frame may be paged */
+		skb_copy_bits(skb, 0, sd->tx_buf, skb->len);
 		memset(sd->tx_buf + skb->len, 0, aligned - skb->len);
 		ret = ssv_write_data(sd, sd->tx_buf, skb->len);
 	}
@@ -494,8 +517,9 @@ static int ssv_tx_thread(void *data)
 		if (!skb && sent)
 			continue;
 		if (!skb) {
+			/* ssv_tx_queued() also sees the aggregation queues */
 			wait_event_interruptible_timeout(sd->tx_wait,
-							 ssv_tx_pending(sd) ||
+							 ssv_tx_queued(sd) ||
 							 kthread_should_stop(),
 							 SSV_STATUS_TIMEOUT);
 			continue;

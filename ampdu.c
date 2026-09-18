@@ -12,6 +12,7 @@
  * Those missing from its bitmap are sent again in a later aggregate,
  * up to AGG_MAX_TRIES; the rest are handed to mac80211 as acknowledged.
  */
+#include <linux/crc32.h>
 #include <linux/etherdevice.h>
 #include <linux/ieee80211.h>
 #include <linux/unaligned.h>
@@ -20,7 +21,7 @@
 
 #define AGG_MAX_TRIES		4
 #define AGG_MAX_FRAMES		16
-#define AGG_MAX_INFLIGHT	3
+#define AGG_MAX_INFLIGHT	1
 #define AGG_BA_TIMEOUT		msecs_to_jiffies(200)
 #define AGG_DELIM_LEN		4
 #define AGG_FCS_LEN		4
@@ -117,8 +118,19 @@ void ssv_agg_init(struct ssv_sta *ss)
 static void agg_done(struct ssv_dev *sd, struct sk_buff *skb, bool acked)
 {
 	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
+	struct ieee80211_tx_rate rate = info->control.rates[0];
 
 	ieee80211_tx_info_clear_status(info);
+	/*
+	 * Rate control needs to know what was used and how it went, and
+	 * mac80211 only advances the Block Ack window for frames reported
+	 * as part of an aggregate.
+	 */
+	info->status.rates[0] = rate;
+	info->status.rates[0].count = 1;
+	info->flags |= IEEE80211_TX_STAT_AMPDU;
+	info->status.ampdu_len = 1;
+	info->status.ampdu_ack_len = acked ? 1 : 0;
 	if (acked)
 		info->flags |= IEEE80211_TX_STAT_ACK;
 	ieee80211_tx_status_ni(sd->hw, skb);
@@ -135,6 +147,7 @@ static bool agg_retry(struct ssv_agg *a, struct sk_buff *skb,
 
 	if (++*tries >= AGG_MAX_TRIES) {
 		*tries = 0;
+		pr_info_ratelimited("ssv6256: DBG drop seq %u\n", seq);
 		__skb_queue_tail(dropped, skb);
 		return true;
 	}
@@ -273,7 +286,7 @@ bool ssv_agg_tx(struct ssv_dev *sd, struct ieee80211_sta *sta,
  * zero when nothing is ready.
  */
 static size_t agg_build(struct ssv_dev *sd, struct ssv_sta *ss,
-			struct ssv_agg *a, int hwq)
+			struct ssv_agg *a, int hwq, struct sk_buff **single)
 {
 	struct ssv_tx_desc *d = (struct ssv_tx_desc *)sd->tx_buf;
 	struct ieee80211_tx_info *info;
@@ -293,6 +306,9 @@ static size_t agg_build(struct ssv_dev *sd, struct ssv_sta *ss,
 	 */
 	id = sd->agg_next_id++ & (SSV_AGG_IDS - 1);
 
+	if (skb_queue_empty(&a->retry) && skb_queue_empty(&a->q))
+		return 0;
+
 	/* everything sent must stay inside the peer's window */
 	if (!agg_window_start(a, &start)) {
 		skb = skb_peek(&a->q);
@@ -307,6 +323,7 @@ static size_t agg_build(struct ssv_dev *sd, struct ssv_sta *ss,
 		while (n < limit && (skb = skb_peek(src))) {
 			struct ieee80211_hdr *hdr;
 			size_t sz = agg_mpdu_size(skb);
+			u8 *qc;
 			u16 dl;
 
 			if (((skb_seq(skb) - start) & SEQ_MASK) >= a->buf_size ||
@@ -320,9 +337,24 @@ static size_t agg_build(struct ssv_dev *sd, struct ssv_sta *ss,
 			put_unaligned_le16(dl << 4, p);
 			p[2] = delim_crc(p);
 			p[3] = AGG_SIGNATURE;
-			memcpy(p + AGG_DELIM_LEN, skb->data, skb->len);
+			/* the frame may be paged: copy it all */
+			skb_copy_bits(skb, 0, p + AGG_DELIM_LEN, skb->len);
+			/*
+			 * Inside an aggregate each frame asks to be
+			 * answered by the Block Ack, not one by one.
+			 * The bits live outside what the cipher covers,
+			 * so the copy can be changed after encryption.
+			 */
+			qc = p + AGG_DELIM_LEN +
+			     ieee80211_hdrlen(hdr->frame_control) - 2;
+			*qc = (*qc & ~IEEE80211_QOS_CTL_ACK_POLICY_MASK) |
+			      IEEE80211_QOS_CTL_ACK_POLICY_BLOCKACK;
 			memset(p + AGG_DELIM_LEN + skb->len, 0,
 			       sz - AGG_DELIM_LEN - skb->len);
+			/* the MAC does not fill the checksum in for us */
+			put_unaligned_le32(~crc32_le(~0, p + AGG_DELIM_LEN,
+						     skb->len),
+					   p + AGG_DELIM_LEN + skb->len);
 			p += sz;
 			len += sz;
 			n++;
@@ -338,6 +370,11 @@ static size_t agg_build(struct ssv_dev *sd, struct ssv_sta *ss,
 	}
 	if (!n)
 		return 0;
+	/* one frame alone is not worth an aggregate: see ssv_tx_single() */
+	if (n == 1) {
+		*single = skb_dequeue_tail(&a->inflight);
+		return 0;
+	}
 
 	info = IEEE80211_SKB_CB(first);
 	hdrlen = ieee80211_hdrlen(((struct ieee80211_hdr *)first->data)->frame_control) +
@@ -356,7 +393,17 @@ static size_t agg_build(struct ssv_dev *sd, struct ssv_sta *ss,
 	d->w3 = cpu_to_le32(FIELD_PREP(TXD3_PKT_RUN_NO, SSV_AGG_RUN_NO(id)) |
 			    FIELD_PREP(TXD3_WSID, ss->wsid) |
 			    FIELD_PREP(TXD3_TXQ_IDX, hwq));
-	d->w5 = cpu_to_le32(FIELD_PREP(TXD5_RATE_RPT_MODE, RATE_RPT_ON));
+	/*
+	 * No transmit report: the chip would echo the whole aggregate back
+	 * over the bus, and the Block Ack already carries the run number
+	 * that says which frames arrived.
+	 */
+	/*
+	 * No transmit report: the chip would send the whole aggregate back
+	 * over the bus, filling the receive buffers, and the Block Ack
+	 * already says which frames arrived.
+	 */
+	d->w5 = cpu_to_le32(FIELD_PREP(TXD5_RATE_RPT_MODE, RATE_RPT_OFF));
 
 	/* aggregates always go with RTS/CTS, and ask for a Block Ack */
 	for (i = 0; i < SSV_TX_MAX_RATES; i++) {
@@ -379,8 +426,18 @@ static size_t agg_build(struct ssv_dev *sd, struct ssv_sta *ss,
 			break;
 	}
 
-	dev_dbg(sd->dev, "agg: q%d id %u send %d mpdu seq %u len %zu\n",
-		hwq, id, n, skb_seq(first), len);
+	/* DBG: descreve o agregado para o MAC */
+	d->ampdu[0] = cpu_to_le32(FIELD_PREP(TXA0_WHOLE_LENGTH, on_air) |
+				  TXA0_LAST_PKT);
+
+	if (n >= 2) {
+		u8 *b = sd->tx_buf + SSV_TX_DESC_LEN;
+		u32 sz0 = round_up(AGG_DELIM_LEN + first->len + AGG_FCS_LEN, 4);
+
+		dev_info_ratelimited(sd->dev,
+				     "DBG n%d len%zu m0[%u] %*ph | m1 %*ph\n",
+				     n, len, first->len, 12, b, 16, b + sz0);
+	}
 	return len;
 }
 
@@ -399,6 +456,7 @@ static void agg_send_bar(struct ssv_dev *sd, struct ieee80211_sta *sta,
 			return;
 		start = skb_seq(skb);
 	}
+	dev_info_ratelimited(sd->dev, "DBG bar tid %u start %u\n", tid, start);
 	ieee80211_send_bar(sd->vif, sta->addr, tid, start);
 }
 
@@ -450,9 +508,17 @@ bool ssv_agg_pump(struct ssv_dev *sd)
 
 			while (!skb_queue_empty(&a->retry) ||
 			       !skb_queue_empty(&a->q)) {
+				struct sk_buff *single = NULL;
+				int hwq = ssv_tid_to_hwq(t);
+
 				spin_lock_bh(&sd->sta_lock);
-				len = agg_build(sd, ss, a, ssv_tid_to_hwq(t));
+				len = agg_build(sd, ss, a, hwq, &single);
 				spin_unlock_bh(&sd->sta_lock);
+				if (single) {
+					ssv_tx_single(sd, single, sta, hwq);
+					sent = true;
+					continue;
+				}
 				if (!len)
 					break;
 				if (ssv_write_data(sd, sd->tx_buf, len))
@@ -467,9 +533,10 @@ bool ssv_agg_pump(struct ssv_dev *sd)
 }
 
 /*
- * Settle the MPDUs of aggregate @id: acknowledged when @bitmap (which
- * starts at @ssn) has their bit, resent otherwise.  A NULL bitmap means
- * the peer answered nothing.
+ * Settle the MPDUs the Block Ack covers: its bitmap starts at @ssn and
+ * speaks for the next 64 sequence numbers, so every frame of ours in
+ * that range is either acknowledged or has to go again.  A NULL bitmap
+ * means the aggregate @id got no answer at all.
  */
 static void agg_settle(struct ssv_dev *sd, struct ieee80211_sta *sta,
 		       struct ssv_agg *a, u8 tid, u8 id, u16 ssn,
@@ -484,14 +551,13 @@ static void agg_settle(struct ssv_dev *sd, struct ieee80211_sta *sta,
 
 	spin_lock_bh(&sd->sta_lock);
 	skb_queue_walk_safe(&a->inflight, skb, next) {
-		u16 off;
+		u16 off = (skb_seq(skb) - ssn) & SEQ_MASK;
 
-		if (agg_cb(skb)->id != id)
+		if (bitmap ? off >= 64 : agg_cb(skb)->id != id)
 			continue;
 		__skb_unlink(skb, &a->inflight);
 		frames++;
-		off = (skb_seq(skb) - ssn) & SEQ_MASK;
-		if (bitmap && off < 64 &&
+		if (bitmap &&
 		    (le32_to_cpu(bitmap[off / 32]) & BIT(off % 32))) {
 			a->tries[skb_seq(skb) & (SSV_AGG_WINDOW - 1)] = 0;
 			__skb_queue_tail(&done, skb);
@@ -504,8 +570,8 @@ static void agg_settle(struct ssv_dev *sd, struct ieee80211_sta *sta,
 	if (!frames)
 		return;
 
-	dev_dbg(sd->dev, "agg: %s tid %u id %u ssn %u acked %d/%d\n",
-		bitmap ? "BA" : "no BA", tid, id, ssn, acked, frames);
+	dev_info_ratelimited(sd->dev, "DBG %s tid %u ssn %u acked %d/%d\n",
+			     bitmap ? "BA" : "noBA", tid, ssn, acked, frames);
 	if (!skb_queue_empty(&drop))
 		agg_send_bar(sd, sta, a, tid);
 	ssv_tx_kick(sd);
@@ -513,7 +579,7 @@ static void agg_settle(struct ssv_dev *sd, struct ieee80211_sta *sta,
 	agg_complete(sd, &drop, false);
 }
 
-/* Find the station and TID holding MPDUs of aggregate @id. */
+/* Find the station whose TID has an aggregation session running. */
 static struct ssv_agg *agg_lookup(struct ssv_dev *sd, u8 id, u8 tid,
 				  struct ieee80211_sta **stap)
 {
@@ -536,7 +602,12 @@ static struct ssv_agg *agg_lookup(struct ssv_dev *sd, u8 id, u8 tid,
 	return NULL;
 }
 
-/* A Block Ack answering one of our aggregates (RX path). */
+/*
+ * A Block Ack answering an aggregate of ours (RX path).  The chip only
+ * tags it with the run number when it was asked for a transmit report,
+ * which costs a copy of the whole aggregate over the bus, so the frames
+ * are found by the sequence numbers the Block Ack covers instead.
+ */
 void ssv_agg_ba(struct ssv_dev *sd, struct sk_buff *skb, u8 run_no)
 {
 	const struct ssv_ba_frame *ba = (const struct ssv_ba_frame *)skb->data;
@@ -544,15 +615,17 @@ void ssv_agg_ba(struct ssv_dev *sd, struct sk_buff *skb, u8 run_no)
 	struct ssv_agg *a;
 	u8 tid;
 
-	if (skb->len < sizeof(*ba) || !ssv_is_agg_run_no(run_no))
+	if (skb->len < sizeof(*ba))
 		return;
 	tid = le16_to_cpu(ba->control) >> 12;
+	dev_info_ratelimited(sd->dev, "DBG ba len %u: %*ph\n", skb->len,
+			     (int)min(skb->len, 32u), skb->data);
 
 	rcu_read_lock();
-	a = agg_lookup(sd, SSV_AGG_ID(run_no), tid, &sta);
+	a = agg_lookup(sd, 0, tid, &sta);
 	if (a)
-		agg_settle(sd, sta, a, tid, SSV_AGG_ID(run_no),
-			   le16_to_cpu(ba->ssc) >> 4, ba->bitmap);
+		agg_settle(sd, sta, a, tid, 0, le16_to_cpu(ba->ssc) >> 4,
+			   ba->bitmap);
 	rcu_read_unlock();
 }
 

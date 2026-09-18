@@ -49,8 +49,8 @@
 
 /* Bounce buffer for one aggregate plus its descriptor. */
 #define SSV_TX_BUF_SIZE		16384
-/* Largest frame the chip hands back, including descriptor and padding. */
-#define SSV_RX_BUF_SIZE		4096
+/* Largest buffer the chip hands back, including descriptor and padding. */
+#define SSV_RX_BUF_SIZE		16384
 
 /* Channel width, and which side the secondary channel is on. */
 enum ssv_bandwidth {
@@ -146,6 +146,12 @@ enum ssv_host_cmd {
 #define TXR1_IS_LAST_RATE	BIT(20)
 #define TXR1_RPT_RESULT		GENMASK(23, 22)
 #define TXR1_RPT_TRYCNT		GENMASK(27, 24)
+
+/* Aggregate description, in the words after the rate series */
+#define TXA0_WHOLE_LENGTH	GENMASK(15, 0)
+#define TXA0_NEXT_PKT		GENMASK(23, 16)
+#define TXA0_LAST_PKT		BIT(24)
+#define TXA0_DMY_DELIM_NUM	GENMASK(31, 28)
 
 #define SSV_TX_MAX_RATES	4
 
@@ -346,6 +352,8 @@ void ssv_tx(struct ieee80211_hw *hw, struct ieee80211_tx_control *control,
 	    struct sk_buff *skb);
 void ssv_tx_status(struct ssv_dev *sd, struct sk_buff *skb);
 void ssv_tx_kick(struct ssv_dev *sd);
+void ssv_tx_single(struct ssv_dev *sd, struct sk_buff *skb,
+		   struct ieee80211_sta *sta, int hwq);
 bool ssv_tx_queued(struct ssv_dev *sd);
 int ssv_tid_to_hwq(u8 tid);
 int ssv_ac_to_hwq(u16 ac);

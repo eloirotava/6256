@@ -376,7 +376,9 @@ int ssv_mac_register(struct ssv_dev *sd)
 
 	/* one spatial stream, 20 or 40 MHz */
 	ht->ht_supported = true;
-	ht->cap = IEEE80211_HT_CAP_SGI_20 | IEEE80211_HT_CAP_SM_PS;
+	ht->cap = IEEE80211_HT_CAP_SGI_20 | IEEE80211_HT_CAP_SGI_40 |
+		  IEEE80211_HT_CAP_SUP_WIDTH_20_40 |
+		  IEEE80211_HT_CAP_DSSSCCK40 | IEEE80211_HT_CAP_SM_PS;
 	ht->ampdu_factor = IEEE80211_HT_MAX_AMPDU_32K;
 	ht->ampdu_density = IEEE80211_HT_MPDU_DENSITY_8;
 	ht->mcs.rx_mask[0] = 0xff;
