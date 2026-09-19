@@ -457,7 +457,14 @@ static void agg_send_bar(struct ssv_dev *sd, struct ieee80211_sta *sta,
 		start = skb_seq(skb);
 	}
 	dev_info_ratelimited(sd->dev, "DBG bar tid %u start %u\n", tid, start);
-	ieee80211_send_bar(sd->vif, sta->addr, tid, start);
+	/*
+	 * The value goes into the frame as it is given, and the field it
+	 * lands in is a sequence control: the number belongs above the
+	 * four fragment bits.  Handing over a bare sequence number points
+	 * the peer at a window sixteen times too far back, and its
+	 * reordering buffer then never lets go of what follows.
+	 */
+	ieee80211_send_bar(sd->vif, sta->addr, tid, IEEE80211_SN_TO_SEQ(start));
 }
 
 /* TX thread: send what is pending.  Returns true if something went out. */
