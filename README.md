@@ -40,13 +40,22 @@ entrega os subquadros um a um. Enviar agregados ainda não funciona e
 está fora daqui — o trabalho e o que se descobriu sobre o chip estão na
 branch `ampdu-wip`.
 
-Medido num RK322x com o canal de 2,4 GHz cheio (noite, mais de trinta
-redes à vista), a −19 dBm do ponto de acesso: **1,4 Mbit/s de subida e
-3,0 Mbit/s de descida**. Números bem maiores aparecem com os parâmetros
-de acesso ao meio que o chip traz de fábrica (AIFS 2 e janela 3–7 em
-todas as filas), mas isso é tomar banda dos vizinhos; o driver programa
-o que o ponto de acesso pede, como manda o padrão. Sem agregação de
-envio, cada quadro custa uma transação SDIO, e é isso que limita.
+Medido num RK322x contra um ponto de acesso em 5 GHz, canal 149, HT40,
+a −22 dBm, com iperf3 de dez segundos em cada sentido: **18,7 Mbit/s de
+subida e 13,8 Mbit/s de descida** (duas medições, 18,6/13,5 e
+18,8/14,0), com o enlace em MCS 7 de 40 MHz e intervalo curto. O driver
+do fabricante, no mesmo ponto e no mesmo intervalo de tempo, fez 8,9 e
+13,1 de subida e 17,8 e 18,3 de descida — mais rápido para receber,
+onde ele agrega, e bem mais lento para enviar.
+
+Em 2,4 GHz no canal 1 desta casa (noite, mais de cento e cinquenta
+redes à vista) nenhum dos dois passa tráfego de forma útil.
+
+Números maiores aparecem com os parâmetros de acesso ao meio que o chip
+traz de fábrica (AIFS 2 e janela 3–7 em todas as filas), mas isso é
+tomar banda dos vizinhos; o driver programa o que o ponto de acesso
+pede, como manda o padrão. Sem agregação de envio, cada quadro custa
+uma transação SDIO, e é isso que limita a subida.
 
 As calibrações levam cerca de 90 ms e são refeitas a cada carga do
 módulo; o resultado aparece no `dmesg` em nível de depuração.
