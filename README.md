@@ -47,11 +47,16 @@ que se descobriu está em `Documentation/ampdu.md` na branch
 
 Medido num RK322x contra um ponto de acesso em 5 GHz, canal 149, HT40,
 a −22 dBm, com iperf3 de dez segundos em cada sentido: **18,7 Mbit/s de
-subida e 13,8 Mbit/s de descida** (duas medições, 18,6/13,5 e
-18,8/14,0), com o enlace em MCS 7 de 40 MHz e intervalo curto. O driver
-do fabricante, no mesmo ponto e no mesmo intervalo de tempo, fez 8,9 e
-13,1 de subida e 17,8 e 18,3 de descida — mais rápido para receber,
-onde ele agrega, e bem mais lento para enviar.
+subida e 13,8 Mbit/s de descida** (medições de 18,6/13,5, 18,8/14,0 e
+18,7/14,4), com o enlace em MCS 7 de 40 MHz e intervalo curto.
+
+O driver do fabricante, no mesmo ponto e no mesmo intervalo de tempo,
+com HT e agregação de recepção ligados no arquivo de configuração dele,
+fez 7,6 e 8,8 de subida e **34,4 e 33,7 de descida**. Ou seja: este
+driver envia cerca de duas vezes mais rápido, e recebe cerca de duas
+vezes e meia mais devagar. A diferença na descida é uma transação SDIO
+por quadro recebido, contra a leitura em rajada que o driver do
+fabricante faz (`RX_HW_AGG_MODE`); é o próximo ganho grande a buscar.
 
 Em 2,4 GHz no canal 1 desta casa (noite, mais de cento e cinquenta
 redes à vista) nenhum dos dois passa tráfego de forma útil.
