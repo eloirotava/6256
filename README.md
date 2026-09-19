@@ -36,9 +36,14 @@ o processador aguenta com folga nessas taxas), economia de energia e o
 ajuste fino de potência por canal em 5 GHz.
 
 Recebe agregados (A-MPDU): o MAC responde aos Block Ack sozinho e
-entrega os subquadros um a um. Enviar agregados ainda não funciona e
-está fora daqui — o trabalho e o que se descobriu sobre o chip estão na
-branch `ampdu-wip`.
+entrega os subquadros um a um. Enviar agregados fica de fora, e não por
+falta de tentativa: o chip transmite o agregado que o host monta, o
+outro lado responde com Block Ack, mas o chip ignora essa resposta e
+retransmite tudo até esgotar as séries de taxa — a subida cai de 17,6
+para 0,26 Mbit/s. O driver do fabricante, no mesmo chip, também não
+agrega no envio (3633 quadros numa transferência, nenhum agregado). O
+que se descobriu está em `Documentation/ampdu.md` na branch
+`ampdu-wip`.
 
 Medido num RK322x contra um ponto de acesso em 5 GHz, canal 149, HT40,
 a −22 dBm, com iperf3 de dez segundos em cada sentido: **18,7 Mbit/s de
