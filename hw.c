@@ -465,8 +465,8 @@ static int ssv_mac_init(struct ssv_dev *sd)
 	ssv_reg_write(sd, ADR_AMPDU_SCOREBOAD_SIZE, MAX_RX_AGGR_SIZE);
 	/* the MAC answers Block Ack requests itself, on any TID */
 	ssv_field_write(sd, ADR_BA_TID, BA_TID, 0xf);
-	/* DBG: CRC automatico desligado */
-	ssv_field_write(sd, ADR_MTX_MISC_EN, MTX_AMPDU_CRC8_AUTO, 0);
+	/* and computes the CRC of every delimiter inside an aggregate */
+	ssv_field_write(sd, ADR_MTX_MISC_EN, MTX_AMPDU_CRC8_AUTO, 1);
 	return 0;
 }
 

@@ -463,16 +463,6 @@ bool ssv_tx_queued(struct ssv_dev *sd)
 	return false;
 }
 
-static bool ssv_tx_pending(struct ssv_dev *sd)
-{
-	int q;
-
-	for (q = 0; q < SSV_HW_TXQ_NUM; q++)
-		if (!skb_queue_empty(&sd->txq[q]))
-			return true;
-	return false;
-}
-
 /*
  * A report can go missing, for instance when the chip gives up on a
  * frame it never managed to send.  Hand those frames back to mac80211

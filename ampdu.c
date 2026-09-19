@@ -147,7 +147,6 @@ static bool agg_retry(struct ssv_agg *a, struct sk_buff *skb,
 
 	if (++*tries >= AGG_MAX_TRIES) {
 		*tries = 0;
-		pr_info_ratelimited("ssv6256: DBG drop seq %u\n", seq);
 		__skb_queue_tail(dropped, skb);
 		return true;
 	}
@@ -426,18 +425,12 @@ static size_t agg_build(struct ssv_dev *sd, struct ssv_sta *ss,
 			break;
 	}
 
-	/* DBG: descreve o agregado para o MAC */
+	/* the MAC needs the length of the whole aggregate */
 	d->ampdu[0] = cpu_to_le32(FIELD_PREP(TXA0_WHOLE_LENGTH, on_air) |
 				  TXA0_LAST_PKT);
 
-	if (n >= 2) {
-		u8 *b = sd->tx_buf + SSV_TX_DESC_LEN;
-		u32 sz0 = round_up(AGG_DELIM_LEN + first->len + AGG_FCS_LEN, 4);
-
-		dev_info_ratelimited(sd->dev,
-				     "DBG n%d len%zu m0[%u] %*ph | m1 %*ph\n",
-				     n, len, first->len, 12, b, 16, b + sz0);
-	}
+	dev_dbg(sd->dev, "aggregate %u: seq %u, %d frames, %zu bytes\n",
+		id, skb_seq(first), n, len);
 	return len;
 }
 
@@ -456,7 +449,6 @@ static void agg_send_bar(struct ssv_dev *sd, struct ieee80211_sta *sta,
 			return;
 		start = skb_seq(skb);
 	}
-	dev_info_ratelimited(sd->dev, "DBG bar tid %u start %u\n", tid, start);
 	/*
 	 * The value goes into the frame as it is given, and the field it
 	 * lands in is a sequence control: the number belongs above the
@@ -577,8 +569,8 @@ static void agg_settle(struct ssv_dev *sd, struct ieee80211_sta *sta,
 	if (!frames)
 		return;
 
-	dev_info_ratelimited(sd->dev, "DBG %s tid %u ssn %u acked %d/%d\n",
-			     bitmap ? "BA" : "noBA", tid, ssn, acked, frames);
+	dev_dbg(sd->dev, "%s at ssn %u: %d of %d acknowledged\n",
+		bitmap ? "block ack" : "no answer", ssn, acked, frames);
 	if (!skb_queue_empty(&drop))
 		agg_send_bar(sd, sta, a, tid);
 	ssv_tx_kick(sd);
@@ -625,8 +617,9 @@ void ssv_agg_ba(struct ssv_dev *sd, struct sk_buff *skb, u8 run_no)
 	if (skb->len < sizeof(*ba))
 		return;
 	tid = le16_to_cpu(ba->control) >> 12;
-	dev_info_ratelimited(sd->dev, "DBG ba len %u: %*ph\n", skb->len,
-			     (int)min(skb->len, 32u), skb->data);
+	dev_dbg(sd->dev, "block ack: ssn %u, bitmap %08x%08x, run %u\n",
+		le16_to_cpu(ba->ssc) >> 4, le32_to_cpu(ba->bitmap[1]),
+		le32_to_cpu(ba->bitmap[0]), run_no);
 
 	rcu_read_lock();
 	a = agg_lookup(sd, 0, tid, &sta);

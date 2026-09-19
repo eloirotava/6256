@@ -50,12 +50,36 @@ Duas leituras enganam nessas capturas e convém anotar:
   não aparecem ACK, CTS nem Block Ack. A ausência deles na captura não
   prova nada.
 
-## O que falta
+## Por que isto não vale a pena neste chip
 
-O tráfego ainda não flui com agregação ligada, e nenhum Block Ack chega
-ao driver (`ssv_agg_ba()` nunca é chamado com bitmap). Numa rajada de 200
-pacotes o driver montou seis agregados e só quinze MPDUs agregadas foram
-vistas no ar, o que sugere que a maior parte dos agregados não chega a
-ser transmitida. O próximo passo é olhar o caminho entre `agg_build()` e
-o chip: comprimento total, contagem de páginas pedidas ao chip e o que o
-chip faz quando o pedido não cabe.
+Com carga de verdade (iperf3 no sentido de subida, que enche a fila) o
+comportamento fica claro e é sempre o mesmo:
+
+* O driver monta o agregado e o chip o transmite. O outro lado o recebe e
+  responde com um Block Ack — os Block Acks chegam, e cada um traz um
+  mapa coerente com o que foi recebido.
+* **O chip não usa esse Block Ack para dar o agregado por terminado.**
+  Ele retransmite o mesmo agregado até esgotar as quatro séries de taxa,
+  e cada retransmissão colhe outra cópia do mesmo Block Ack: medido, cada
+  Block Ack distinto chegou de catorze a quinze vezes.
+* O resultado é que o ar se enche de retransmissões de quadros que o
+  outro lado já tem. Com agregação a subida ficou em **0,26 Mbit/s**; o
+  mesmo enlace, no mesmo minuto, sem agregação, deu **17,6 Mbit/s**.
+
+Nem ligar o relatório de transmissão do agregado (`RATE_RPT_ON`, como o
+driver do fabricante faz para dados unicast) nem mexer no CRC automático
+do delimitador mudou isso.
+
+O ponto decisivo veio de olhar o que o driver do fabricante faz no ar,
+neste mesmo chip e neste mesmo ponto de acesso: numa transferência de
+seis segundos ele enviou 3633 quadros de dados e **nenhum agregado** —
+todos sem o campo de estado de A-MPDU no radiotap. Ou seja, a
+implementação de referência também não agrega no envio no SSV6006C; o
+código de agregação dela é da geração 6051.
+
+Quem quiser retomar isto precisa primeiro descobrir o que faz o chip
+casar um Block Ack com o agregado que o host montou — provavelmente algo
+nos campos `ampdu_tx_ssn`, `ampdu_tx_bitmap_lw/hw` ou
+`ampdu_dmydelimiter_num` do descritor, que nem este driver nem o do
+fabricante preenchem. Sem isso, agregar no envio custa mais do que
+rende.
