@@ -20,6 +20,7 @@
 #define ADR_BRG_SW_RST				(SYS_REG_BASE + 0x0)
 #define  MCU_ENABLE				BIT(0)
 #define  MAC_SW_RST				BIT(1)
+#define  PLF_SW_RST				BIT(20)
 #define ADR_BOOT				(SYS_REG_BASE + 0x4)
 #define  RG_REBOOT				BIT(0)
 #define ADR_CHIP_ID_2				(SYS_REG_BASE + 0x10)

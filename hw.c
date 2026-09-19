@@ -474,10 +474,20 @@ static int ssv_mac_init(struct ssv_dev *sd)
  * Full bring-up.  The radio comes first: the MAC takes its timing from
  * whatever clock the PLL settles on.  The firmware is loaded last, and
  * only then is the baseband allowed to receive.
+ *
+ * Everything starts from a platform reset, because the chip does not
+ * necessarily come as it was left: another driver may have had it, or
+ * a previous run may have stopped with the radio in the middle of
+ * something.  Without it the calibrations are the first to fail.
  */
 int ssv_hw_start(struct ssv_dev *sd)
 {
 	int ret;
+
+	ret = ssv_reg_write(sd, ADR_BRG_SW_RST, PLF_SW_RST);
+	if (ret)
+		return ret;
+	usleep_range(50, 100);
 
 	ssv_phy_enable(sd, false);
 	ret = ssv_phy_init(sd);
